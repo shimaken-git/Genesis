@@ -1,0 +1,119 @@
+<?xml version="1.0" ?>
+<robot name="2link_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+    
+    <!-- materials -->
+    <material name="black">
+        <color rgba="0 0 0 0.7"/>
+    </material>
+    <material name="white">
+        <color rgba="1 1 1 0.7"/>
+    </material>
+
+    <!-- links -->
+    <link name="body">
+        <inertial>
+            <origin rpy="0 0 0" xyz="0 0 0"/>
+            <mass value="2.1154"/>
+            <inertia ixx="8626.3165e-9" ixy="-21.1545e-9" ixz="-152.0574e-9" iyy="15049.9921e-9" iyz="253.6369e-9" izz="9458.3977e-9"/>
+        </inertial>
+        <visual>
+            <origin rpy="0 0 0" xyz="0 0 0"/>
+            <geometry>
+                <box size="0.180 0.120 0.130"/>
+            </geometry>
+            <material name="white"/>
+        </visual>
+        <collision>
+            <origin rpy="0 0 0" xyz="0 0 0"/>
+            <geometry>
+                <box size="0.180 0.120 0.130"/>
+            </geometry>
+            <material name="white"/>
+        </collision>
+    </link>
+    <link name="arm1">
+        <inertial>
+            <origin rpy="0 0 0" xyz="0 0 0"/>
+            <mass value="0.3"/>
+            <inertia ixx="524.9018e-9" ixy="2.2969e-9" ixz="-3.8809e-9" iyy="506.4798e-9" iyz="-0.4196e-9" izz="32.4451e-9"/>
+        </inertial>
+        <visual>
+            <origin rpy="0 0 0" xyz="0 0 0"/>
+            <geometry>
+                <box size="0.050 0.080 0.280"/>
+            </geometry>
+            <material name="white"/>
+        </visual>
+        <collision>
+            <origin rpy="0 0 0" xyz="0 0 0"/>
+            <geometry>
+                <box size="0.050 0.080 0.280"/>
+            </geometry>
+            <material name="white"/>
+        </collision>
+    </link>
+    <link name="wheel1">
+        <inertial>
+            <origin rpy="0 0 0" xyz="0 0 0"/>
+            <mass value="0.15"/>
+            <inertia ixx="101.8106e-9" ixy="0" ixz="0.0002e-9" iyy="193.4262e-9" iyz="0" izz="101.8115e-9"/>
+        </inertial>
+        <visual>
+            <origin rpy="1.57 0 0" xyz="0 0 0"/>
+            <geometry>
+                <cylinder radius="0.05" length="0.020" />
+            </geometry>
+            <material name="white"/>
+        </visual>
+        <collision>
+            <origin rpy="1.57 0 0" xyz="0 0 0"/>
+            <geometry>
+                <cylinder radius="0.05" length="0.020" />
+            </geometry>
+            <material name="white"/>
+        </collision>
+    </link>
+    <link name="wheel2">
+        <inertial>
+            <origin rpy="0 0 0" xyz="0 0 0"/>
+            <mass value="0.15"/>
+            <inertia ixx="101.8106e-9" ixy="0" ixz="0.0002e-9" iyy="193.4262e-9" iyz="0" izz="101.8115e-9"/>
+        </inertial>
+        <visual>
+            <origin rpy="1.57 0 0" xyz="0 0 0"/>
+            <geometry>
+                <cylinder radius="0.05" length="0.020" />
+            </geometry>
+            <material name="white"/>
+        </visual>
+        <collision>
+            <origin rpy="1.57 0 0" xyz="0 0 0"/>
+            <geometry>
+                <cylinder radius="0.05" length="0.020" />
+            </geometry>
+            <material name="white"/>
+        </collision>
+    </link>
+
+
+    <!-- joints -->
+    <joint name="body_joint_1" type="fixed">
+        <origin rpy="0 0 0" xyz="0 0 -0.205"/>
+        <parent link="body"/>
+        <child link="arm1"/>
+        <axis xyz="0 1 0"/>
+    </joint>
+    <joint name="motor_1" type="continuous">
+        <origin rpy="0 0 0" xyz="0 0.055 -0.140"/>
+        <parent link="arm1"/>
+        <child link="wheel1"/>
+        <axis xyz="0 1 0"/>
+    </joint>
+    <joint name="motor_2" type="continuous">
+        <origin rpy="0 0 0" xyz="0 -0.055 -0.140"/>
+        <parent link="arm1"/>
+        <child link="wheel2"/>
+        <axis xyz="0 1 0"/>
+    </joint>
+
+</robot>

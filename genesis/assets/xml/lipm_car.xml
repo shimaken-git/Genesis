@@ -1,0 +1,120 @@
+<mujoco>
+    <option gravity="0 0 0" timestep="0.002" />
+    <asset>
+        <material name="blue_" rgba="0 0 1 1" />
+        <material name="green" rgba="0 1 0 1" />
+        <material name="red__" rgba="1 0 0 1" />
+        <material name="white" rgba="1 1 1 1" />
+    </asset>
+
+    <default>
+        <default class="visual">
+            <geom contype="0" conaffinity="0" condim="3" density="5.0" friction="1 0.5 0.5" rgba="0.8 0.6 0.4 1"/>
+            <!-- <geom type="mesh" contype="0" conaffinity="0" group="2"/> -->
+        </default>
+    </default>
+
+    <worldbody>
+        <geom type="plane" size="10 10 0.1" pos="0 0 -2" rgba=".9 0 0 1" />
+        <light diffuse=".5 .5 .5" pos="0 0 3" dir="0 0 -1" />
+        <body name="base" pos="0 0 0">
+            <inertial pos="0.002 0.001 0.025" mass="2.1154" fullinertia="8626.3165e-9 15049.9921e-9 9458.3977e-9 -21.1545e-9 -152.0574e-9 253.6369e-9"/>
+            <joint type="free"/>
+            <geom type="box" size="0.090 0.036 0.065" pos="0 0 0" euler="0 0 0" material="red__" class="visual"/>
+            <body name="link_1" pos="0 0.036 0">
+                <inertial pos="0.0004 0.0063 -0.0001" mass="0.8179" fullinertia="447.4018e-9 1923.7425e-9 1762.3913e-9 1.1679e-9 2.4194e-9 4.5908e-9"/>
+                <!-- <joint name="base_joint1" pos="0 0.0585 0" axis="1 0 0" /> -->
+                <geom type="box" size="0.080 0.0225 0.040" pos="0 0.0225 0" euler="0 0 0" material="green" class="visual"/>
+                <body name="link_2" pos="0.040 0.063 0" euler="0 0 0">
+                    <inertial pos="0.0002 -0.0009 -0.0578" mass="0.1051" fullinertia="524.9018e-9 506.4798e-9 32.4451e-9 2.2969e-9 -3.8809e-9 -0.4196e-9"/>
+                    <joint name="hinge_1" pos="0 0 0" axis="0 1 0" />
+                    <geom type="cylinder" size="0.0175 0.018" pos="0 0 0" euler="90 0 0" material="blue_" class="visual"/>
+                    <geom type="box" size="0.015 0.018 0.055" pos="0 0 -0.055" euler="0 0 0" material="blue_" class="visual"/>
+                    <geom type="cylinder" size="0.015 0.018" pos="0 0 -0.110" euler="90 0 0" material="blue_" class="visual"/>
+                    <body name="link_3" pos="0 0 -0.110" euler="0 13.61 0">
+                        <inertial pos="0.0 0.0059 -0.0633" mass="0.1179" fullinertia="924.3854e-9 910.758e-9 20.7635e-9 -0.0009e-9 0.0026e-9 -85.5923e-9"/>
+                        <joint name="hinge_2" pos="0 0 0" axis="0 1 0" />
+                        <geom type="cylinder" size="0.015 0.018" pos="0 0 0" euler="90 0 0" material="blue_" class="visual"/>
+                        <geom type="box" size="0.005 0.018 0.085" pos="0 0 -0.085" euler="0 0 0" material="blue_" class="visual"/>
+                        <geom type="cylinder" size="0.01 0.018" pos="0 0 -0.170" euler="90 0 0" material="blue_" class="visual"/>
+                    </body>
+                </body>
+                <body name="link_4" pos="-0.040 0.063 0" euler="0 0 0">
+                    <inertial pos="0.00015 -0.00087 -0.0578" mass="0.1051" fullinertia="524.9018e-9 506.4798e-9 32.4451e-9 2.2339e-9 3.8809e-9 0.41e-9"/>
+                    <joint name="hinge_3" pos="0 0 0" axis="0 1 0" />
+                    <geom type="cylinder" size="0.0175 0.018" pos="0 0 0" euler="90 0 0" material="blue_" class="visual"/>
+                    <geom type="box" size="0.015 0.018 0.055" pos="0 0 -0.055" euler="0 0 0" material="blue_" class="visual"/>
+                    <geom type="cylinder" size="0.015 0.018" pos="0 0 -0.110" euler="90 0 0" material="blue_" class="visual"/>
+                    <body name="link_5" pos="0 0 -0.110" euler="0 -13.61 0">
+                        <inertial pos="0.0 0.0059 -0.0633" mass="0.1179" fullinertia="924.3854e-9 910.758e-9 20.7635e-9 -0.0009e-9 0.0026e-9 -85.5923e-9"/>
+                        <!-- <inertial pos="0.0 0.0018 -0.101" mass="0.8101" fullinertia="10206.8949e-9 9867.5163e-9 563.621e-9 174.3757e-9 2.5529e-9 0.4737e-9"/> -->
+                        <joint name="hinge_4" pos="0 0 0" axis="0 1 0" />
+                        <geom type="cylinder" size="0.015 0.018" pos="0 0 0" euler="90 0 0" material="blue_" class="visual"/>
+                        <geom type="box" size="0.005 0.018 0.085" pos="0 0 -0.085" euler="0 0 0" material="blue_" class="visual"/>
+                        <geom type="cylinder" size="0.01 0.018" pos="0 0 -0.170" euler="90 0 0" material="blue_" class="visual"/>
+                        <geom type="cylinder" size="0.025 0.025" pos="0 0.018 -0.085" euler="90 0 0" material="red__" class="visual"/>
+                        <body name="link_6" pos="0 0 -0.170" euler="0 0 0">
+                            <inertial pos="0 0 0" mass="0.1549" fullinertia="101.8106e-9 193.4262e-9 101.8115e-9 0 0.0002e-9 0"/>
+                            <joint name="motor_1" pos="0 0 0" axis="0 1 0" />
+                            <geom type="cylinder" contype="1" conaffinity="1" size="0.050 0.010" pos="0 0.03 0" euler="90 0 0"/>
+                            <geom type="cylinder" size="0.050 0.010" pos="0 0.03 0" euler="90 0 0" material="white" class="visual"/>
+                        </body>
+                    </body>
+                </body>
+            </body>
+            <body name="link_1_r" pos="0 -0.036 0" euler="0 0 180">
+                <inertial pos="0.0004 0.0063 -0.0001" mass="0.8179" fullinertia="447.4018e-9 1923.7425e-9 1762.3913e-9 1.1679e-9 2.4194e-9 4.5908e-9"/>
+                <!-- <joint name="base_joint1" pos="0 0.0585 0" axis="1 0 0" /> -->
+                <geom type="box" size="0.080 0.0225 0.040" pos="0 0.0225 0" euler="0 0 0" material="green" class="visual"/>
+                <body name="link_2_r" pos="0.040 0.063 0" euler="0 0 0">
+                    <inertial pos="0.00015 -0.00087 -0.0578" mass="0.1051" fullinertia="524.9018e-9 506.4798e-9 32.4451e-9 2.2339e-9 3.8809e-9 0.41e-9"/>
+                    <joint name="hinge_1_r" pos="0 0 0" axis="0 1 0" />
+                    <geom type="cylinder" size="0.0175 0.018" pos="0 0 0" euler="90 0 0" material="blue_" class="visual"/>
+                    <geom type="box" size="0.015 0.018 0.055" pos="0 0 -0.055" euler="0 0 0" material="blue_" class="visual"/>
+                    <geom type="cylinder" size="0.015 0.018" pos="0 0 -0.110" euler="90 0 0" material="blue_" class="visual"/>
+                    <body name="link_3_r" pos="0 0 -0.110" euler="0 13.61 0">
+                        <inertial pos="0.0 0.0059 -0.0633" mass="0.1179" fullinertia="924.3854e-9 910.758e-9 20.7635e-9 -0.0009e-9 0.0026e-9 -85.5923e-9"/>
+                        <!-- <inertial pos="0.0 0.0018 -0.101" mass="0.8101" fullinertia="10206.8949e-9 9867.5163e-9 563.621e-9 174.3757e-9 2.5529e-9 0.4737e-9"/> -->
+                        <joint name="hinge_2_r" pos="0 0 0" axis="0 1 0" />
+                        <geom type="cylinder" size="0.015 0.018" pos="0 0 0" euler="90 0 0" material="blue_" class="visual"/>
+                        <geom type="box" size="0.005 0.018 0.085" pos="0 0 -0.085" euler="0 0 0" material="blue_" class="visual"/>
+                        <geom type="cylinder" size="0.01 0.018" pos="0 0 -0.170" euler="90 0 0" material="blue_" class="visual"/>
+                        <geom type="cylinder" size="0.025 0.025" pos="0 0.018 -0.085" euler="90 0 0" material="red__" class="visual"/>
+                        <body name="link_6_r" pos="0 0 -0.170" euler="0 0 0">
+                            <inertial pos="0 0 0" mass="0.1549" fullinertia="101.8106e-9 193.4262e-9 101.8115e-9 0 0.0002e-9 0"/>
+                            <joint name="motor_2" pos="0 0 0" axis="0 1 0" />
+                            <geom type="cylinder" contype="1" conaffinity="1" size="0.050 0.010" pos="0 0.03 0" euler="90 0 0"/>
+                            <geom type="cylinder" size="0.050 0.010" pos="0 0.03 0" euler="90 0 0" material="white" class="visual"/>
+                        </body>
+                    </body>
+                </body>
+                <body name="link_4_r" pos="-0.040 0.063 0" euler="0 0 0">
+                    <inertial pos="0.0002 -0.0009 -0.0578" mass="0.1051" fullinertia="524.9018e-9 506.4798e-9 32.4451e-9 2.2969e-9 -3.8809e-9 -0.4196e-9"/>
+                    <joint name="hinge_3_r" pos="0 0 0" axis="0 1 0" />
+                    <geom type="cylinder" size="0.0175 0.018" pos="0 0 0" euler="90 0 0" material="blue_" class="visual"/>
+                    <geom type="box" size="0.015 0.018 0.055" pos="0 0 -0.055" euler="0 0 0" material="blue_" class="visual"/>
+                    <geom type="cylinder" size="0.015 0.018" pos="0 0 -0.110" euler="90 0 0" material="blue_" class="visual"/>
+                    <body name="link_5_r" pos="0 0 -0.110" euler="0 -13.61 0">
+                        <inertial pos="0.0 0.0059 -0.0633" mass="0.1179" fullinertia="924.3854e-9 910.758e-9 20.7635e-9 -0.0009e-9 0.0026e-9 -85.5923e-9"/>
+                        <joint name="hinge_4_r" pos="0 0 0" axis="0 1 0" />
+                        <geom type="cylinder" size="0.015 0.018" pos="0 0 0" euler="90 0 0" material="blue_" class="visual"/>
+                        <geom type="box" size="0.005 0.018 0.085" pos="0 0 -0.085" euler="0 0 0" material="blue_" class="visual"/>
+                        <geom type="cylinder" size="0.01 0.018" pos="0 0 -0.170" euler="90 0 0" material="blue_" class="visual"/>
+                    </body>
+                </body>
+            </body>
+        </body>
+    </worldbody>
+    <equality>
+        <connect name="kinematic_link1" active="true" body1="link_3" body2="link_5" anchor="0 0 -0.170" />
+        <connect name="kinematic_link2" active="true" body1="link_3_r" body2="link_5_r" anchor="0 0 -0.170" />
+    </equality>
+    <actuator>
+        <motor joint="hinge_1" ctrlrange="-1 1" ctrllimited="true" />
+        <motor joint="hinge_4" ctrlrange="-1 1" ctrllimited="true" />
+        <motor joint="hinge_1_r" ctrlrange="-1 1" ctrllimited="true" />
+        <motor joint="hinge_4_r" ctrlrange="-1 1" ctrllimited="true" />
+        <velocity joint="motor_1" name="motor_1" ctrlrange="-100000 100000" ctrllimited="true"/>
+        <velocity joint="motor_2" name="motor_2" ctrlrange="-100000 100000" ctrllimited="true"/>
+    </actuator>
+</mujoco>
