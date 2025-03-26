@@ -73,15 +73,14 @@ def main():
     with torch.no_grad():
         while not rospy.is_shutdown():
             ## make obs
-            # inv_base_quat = inv_quat(torch.tensor(imu.orientation.w, imu.orientation.x, imu.orientation.y, imu.orientation.z))
-            inv_base_quat = inv_quat(torch.tensor([[1.0, imu.orientation.x, imu.orientation.y, imu.orientation.z]]))
+            inv_base_quat = inv_quat(torch.tensor([[imu.orientation.w, imu.orientation.x, imu.orientation.y, imu.orientation.z]]))
             projected_gravity = transform_by_quat(env.global_gravity, inv_base_quat)
             # obs[0, 0:3] = torch.tensor([imu.angular_velocity.x, imu.angular_velocity.y, imu.angular_velocity.z]) * env.obs_scales["ang_vel"]
             # obs[0, 3:6] = projected_gravity
             obs[0, 6:9] = torch.tensor([cmd_vel.linear.x * 2.0, 0.0, cmd_vel.angular.z * 1.5]) * env.commands_scale
-            # if len(joint.position) == 12:
-            #     obs[0, 9:21] = (torch.tensor(joint.position) - env.default_dof_pos) * env.obs_scales["dof_pos"]
-            #     obs[0, 21:33] = torch.tensor(joint.velocity) * env.obs_scales["dof_vel"]
+            if len(joint.position) == 12:
+                obs[0, 9:21] = (torch.tensor(joint.position) - env.default_dof_pos) * env.obs_scales["dof_pos"]
+                obs[0, 21:33] = torch.tensor(joint.velocity) * env.obs_scales["dof_vel"]
             # obs[0, 33:45] = actions
             # print(obs)
             # commands
