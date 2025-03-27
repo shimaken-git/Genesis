@@ -42,6 +42,7 @@ def main():
     rospy.Subscriber("/cmd_vel", Twist, twistCb)
     rospy.Subscriber("/realRobot/joint_states", JointState, jointCb)
     pub = rospy.Publisher("/genesis_angles", Float32MultiArray, queue_size=1)
+    pub2 = rospy.Publisher("/genesis_imu", Imu, queue_size=1)
 
     gs.init(backend=gs.cpu)
 
@@ -93,6 +94,16 @@ def main():
             for i in range(12):
                 angle_msg.data.append(env.target_dof_pos[0, i].item())
             pub.publish(angle_msg)
+            gimu = Imu()
+            gimu.header.stamp = rospy.Time.now()
+            gimu.orientation.x = env.base_quat[0, 1]
+            gimu.orientation.y = env.base_quat[0, 2]
+            gimu.orientation.z = env.base_quat[0, 3]
+            gimu.orientation.w = env.base_quat[0, 0]
+            gimu.angular_velocity.x = env.base_ang_vel[0, 0]
+            gimu.angular_velocity.y = env.base_ang_vel[0, 1]
+            gimu.angular_velocity.z = env.base_ang_vel[0, 2]
+            pub2.publish(gimu)
 
 
 if __name__ == "__main__":
