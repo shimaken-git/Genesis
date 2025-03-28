@@ -92,12 +92,18 @@ class ConstraintSolver:
 
         self.reset()
 
+    def clear(self, envs_idx=None):
+        if envs_idx is None:
+            envs_idx = self._solver._scene._envs_idx
+        self._kernel_clear(envs_idx)
+
     @ti.kernel
-    def clear(self):
-        ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.ALL)
-        for b in range(self._B):
-            self.n_constraints[b] = 0
-            self.n_constraints_equality[b] = 0
+    def _kernel_clear(self, envs_idx: ti.types.ndarray()):
+        ti.loop_config(serialize=self._solver._para_level < gs.PARA_LEVEL.ALL)
+        for i_b_ in range(envs_idx.shape[0]):
+            i_b = envs_idx[i_b_]
+            self.n_constraints[i_b] = 0
+            self.n_constraints_equality[i_b] = 0
 
     @ti.kernel
     def add_collision_constraints(self):
@@ -185,103 +191,169 @@ class ConstraintSolver:
 
                     self.efc_D[n_con, i_b] = 1 / ti.max(diag, gs.EPS)
 
+    @ti.func
+    def _func_equality_connect(self, i_b, i_e):
+        eq_info = self._solver.equality_info[i_e]
+        link1_idx = eq_info.eq_obj1id
+        link2_idx = eq_info.eq_obj2id
+        anchor1_pos = gs.ti_vec3([eq_info.eq_data[0], eq_info.eq_data[1], eq_info.eq_data[2]])
+        anchor2_pos = gs.ti_vec3([eq_info.eq_data[3], eq_info.eq_data[4], eq_info.eq_data[5]])
+        sol_params = eq_info.sol_params
+
+        # Transform anchor positions to global coordinates
+        global_anchor1 = gu.ti_transform_by_trans_quat(
+            pos=anchor1_pos,
+            trans=self._solver.links_state[link1_idx, i_b].pos,
+            quat=self._solver.links_state[link1_idx, i_b].quat,
+        )
+        global_anchor2 = gu.ti_transform_by_trans_quat(
+            pos=anchor2_pos,
+            trans=self._solver.links_state[link2_idx, i_b].pos,
+            quat=self._solver.links_state[link2_idx, i_b].quat,
+        )
+
+        link_a_maybe_batch = [link1_idx, i_b] if ti.static(self._solver._options.batch_links_info) else link1_idx
+        link_b_maybe_batch = [link2_idx, i_b] if ti.static(self._solver._options.batch_links_info) else link2_idx
+        invweight = (
+            self._solver.links_info[link_a_maybe_batch].invweight
+            + self._solver.links_info[link_b_maybe_batch].invweight
+        )
+
+        for i_3 in range(3):
+            n_con = ti.atomic_add(self.n_constraints[i_b], 1)
+            ti.atomic_add(self.n_constraints_equality[i_b], 1)
+
+            if ti.static(self.sparse_solve):
+                for i_d_ in range(self.jac_n_relevant_dofs[n_con, i_b]):
+                    i_d = self.jac_relevant_dofs[n_con, i_d_, i_b]
+                    self.jac[n_con, i_d, i_b] = gs.ti_float(0.0)
+            else:
+                for i_d in range(self._solver.n_dofs):
+                    self.jac[n_con, i_d, i_b] = gs.ti_float(0.0)
+
+            jac_qvel = gs.ti_float(0.0)
+            for i_ab in range(2):
+                sign = gs.ti_float(1.0)
+                link = link1_idx
+                pos = global_anchor1
+                if i_ab == 1:
+                    sign = gs.ti_float(-1.0)
+                    link = link2_idx
+                    pos = global_anchor2
+
+                while link > -1:
+                    link_maybe_batch = [link, i_b] if ti.static(self._solver._options.batch_links_info) else link
+
+                    for i_d_ in range(self._solver.links_info[link_maybe_batch].n_dofs):
+                        i_d = self._solver.links_info[link_maybe_batch].dof_end - 1 - i_d_
+
+                        cdof_ang = self._solver.dofs_state[i_d, i_b].cdof_ang
+                        cdot_vel = self._solver.dofs_state[i_d, i_b].cdof_vel
+
+                        t_quat = gu.ti_identity_quat()
+                        t_pos = pos - self._solver.links_state[link, i_b].root_COM
+                        ang, vel = gu.ti_transform_motion_by_trans_quat(cdof_ang, cdot_vel, t_pos, t_quat)
+
+                        diff = sign * vel
+                        jac = diff[i_3]
+                        jac_qvel = jac_qvel + jac * self._solver.dofs_state[i_d, i_b].vel
+                        self.jac[n_con, i_d, i_b] = self.jac[n_con, i_d, i_b] + jac
+
+                        if ti.static(self.sparse_solve):
+                            self.jac_relevant_dofs[n_con, con_n_relevant_dofs, i_b] = i_d
+                            con_n_relevant_dofs += 1
+
+                    link = self._solver.links_info[link_maybe_batch].parent_idx
+
+            if ti.static(self.sparse_solve):
+                self.jac_n_relevant_dofs[n_con, i_b] = con_n_relevant_dofs
+
+            pos_diff = global_anchor1 - global_anchor2
+            penetration = pos_diff.norm()
+
+            imp, aref = gu.imp_aref(sol_params, -penetration, jac_qvel, pos_diff[i_3])
+
+            diag = invweight * (1 - imp) / (imp + gs.EPS)
+
+            self.diag[n_con, i_b] = diag
+            self.aref[n_con, i_b] = aref
+
+            self.efc_D[n_con, i_b] = 1 / ti.max(diag, gs.EPS)
+
+    @ti.func
+    def _func_equality_joint(self, i_b, i_e):
+        eq_info = self._solver.equality_info[i_e]
+
+        sol_params = eq_info.sol_params
+
+        joint_1_maybe_batch = (
+            [eq_info.eq_obj1id, i_b] if ti.static(self._solver._options.batch_joints_info) else eq_info.eq_obj1id
+        )
+        joint_2_maybe_batch = (
+            [eq_info.eq_obj2id, i_b] if ti.static(self._solver._options.batch_joints_info) else eq_info.eq_obj2id
+        )
+        joint_info1 = self._solver.joints_info[joint_1_maybe_batch]
+        joint_info2 = self._solver.joints_info[joint_2_maybe_batch]
+        i_qpos1 = joint_info1.q_start
+        i_qpos2 = joint_info2.q_start
+        i_dof1 = joint_info1.dof_start
+        i_dof2 = joint_info2.dof_start
+
+        n_con = ti.atomic_add(self.n_constraints[i_b], 1)
+        ti.atomic_add(self.n_constraints_equality[i_b], 1)
+
+        if ti.static(self.sparse_solve):
+            for i_d_ in range(self.jac_n_relevant_dofs[n_con, i_b]):
+                i_d = self.jac_relevant_dofs[n_con, i_d_, i_b]
+                self.jac[n_con, i_d, i_b] = gs.ti_float(0.0)
+        else:
+            for i_d in range(self._solver.n_dofs):
+                self.jac[n_con, i_d, i_b] = gs.ti_float(0.0)
+
+        pos1 = self._solver.qpos[i_qpos1, i_b]
+        pos2 = self._solver.qpos[i_qpos2, i_b]
+        ref1 = self._solver.qpos0[i_qpos1, i_b]
+        ref2 = self._solver.qpos0[i_qpos2, i_b]
+
+        # TODO: zero objid2
+        diff = pos2 - ref2
+        pos = pos1 - ref1
+        deriv = gs.ti_float(0.0)
+
+        # y - y0 = a0 + a1 * (x-x0) + a2 * (x-x0)^2 + a3 * (x-fx0)^3 + a4 * (x-x0)^4
+        for i_5 in range(5):
+            diff_power = diff**i_5
+            pos = pos - diff_power * eq_info.eq_data[i_5]
+            if i_5 < 4:
+                deriv = deriv + eq_info.eq_data[i_5 + 1] * diff_power * (i_5 + 1)
+
+        self.jac[n_con, i_dof1, i_b] = gs.ti_float(1.0)
+        self.jac[n_con, i_dof2, i_b] = -deriv
+        jac_qvel = (
+            self.jac[n_con, i_dof1, i_b] * self._solver.dofs_state[i_dof1, i_b].vel
+            + self.jac[n_con, i_dof2, i_b] * self._solver.dofs_state[i_dof2, i_b].vel
+        )
+        invweight = self._solver.dofs_info[i_dof1].invweight + self._solver.dofs_info[i_dof2].invweight
+
+        imp, aref = gu.imp_aref(sol_params, -ti.abs(pos), jac_qvel, pos)
+
+        diag = invweight * (1 - imp) / (imp + gs.EPS)
+
+        self.diag[n_con, i_b] = diag
+        self.aref[n_con, i_b] = aref
+        self.efc_D[n_con, i_b] = 1 / ti.max(diag, gs.EPS)
+
     @ti.kernel
     def add_equality_constraints(self):
         ti.loop_config(serialize=self._para_level < gs.PARA_LEVEL.PARTIAL)
         for i_b in range(self._B):
             for i_e in range(self._solver.n_equalities):
-                eq_info = self._solver.equality_info[i_e]
-                link1_idx = eq_info.link1_idx
-                link2_idx = eq_info.link2_idx
-                anchor1_pos = eq_info.anchor1_pos
-                anchor2_pos = eq_info.anchor2_pos
-                sol_params = eq_info.sol_params
-
-                # Transform anchor positions to global coordinates
-                global_anchor1 = gu.ti_transform_by_trans_quat(
-                    pos=anchor1_pos,
-                    trans=self._solver.links_state[link1_idx, i_b].pos,
-                    quat=self._solver.links_state[link1_idx, i_b].quat,
-                )
-                global_anchor2 = gu.ti_transform_by_trans_quat(
-                    pos=anchor2_pos,
-                    trans=self._solver.links_state[link2_idx, i_b].pos,
-                    quat=self._solver.links_state[link2_idx, i_b].quat,
-                )
-
-                link_a_maybe_batch = (
-                    [link1_idx, i_b] if ti.static(self._solver._options.batch_links_info) else link1_idx
-                )
-                link_b_maybe_batch = (
-                    [link2_idx, i_b] if ti.static(self._solver._options.batch_links_info) else link2_idx
-                )
-                invweight = (
-                    self._solver.links_info[link_a_maybe_batch].invweight
-                    + self._solver.links_info[link_b_maybe_batch].invweight
-                )
-
-                for i_3 in range(3):
-                    n_con = ti.atomic_add(self.n_constraints[i_b], 1)
-                    ti.atomic_add(self.n_constraints_equality[i_b], 1)
-
-                    if ti.static(self.sparse_solve):
-                        for i_d_ in range(self.jac_n_relevant_dofs[n_con, i_b]):
-                            i_d = self.jac_relevant_dofs[n_con, i_d_, i_b]
-                            self.jac[n_con, i_d, i_b] = gs.ti_float(0.0)
-                    else:
-                        for i_d in range(self._solver.n_dofs):
-                            self.jac[n_con, i_d, i_b] = gs.ti_float(0.0)
-
-                    jac_qvel = gs.ti_float(0.0)
-                    for i_ab in range(2):
-                        sign = gs.ti_float(1.0)
-                        link = link1_idx
-                        pos = global_anchor1
-                        if i_ab == 1:
-                            sign = gs.ti_float(-1.0)
-                            link = link2_idx
-                            pos = global_anchor2
-
-                        while link > -1:
-                            link_maybe_batch = (
-                                [link, i_b] if ti.static(self._solver._options.batch_links_info) else link
-                            )
-
-                            for i_d_ in range(self._solver.links_info[link_maybe_batch].n_dofs):
-                                i_d = self._solver.links_info[link_maybe_batch].dof_end - 1 - i_d_
-
-                                cdof_ang = self._solver.dofs_state[i_d, i_b].cdof_ang
-                                cdot_vel = self._solver.dofs_state[i_d, i_b].cdof_vel
-
-                                t_quat = gu.ti_identity_quat()
-                                t_pos = pos - self._solver.links_state[link, i_b].root_COM
-                                ang, vel = gu.ti_transform_motion_by_trans_quat(cdof_ang, cdot_vel, t_pos, t_quat)
-
-                                diff = sign * vel
-                                jac = diff[i_3]
-                                jac_qvel = jac_qvel + jac * self._solver.dofs_state[i_d, i_b].vel
-                                self.jac[n_con, i_d, i_b] = self.jac[n_con, i_d, i_b] + jac
-
-                                if ti.static(self.sparse_solve):
-                                    self.jac_relevant_dofs[n_con, con_n_relevant_dofs, i_b] = i_d
-                                    con_n_relevant_dofs += 1
-
-                            link = self._solver.links_info[link_maybe_batch].parent_idx
-
-                    if ti.static(self.sparse_solve):
-                        self.jac_n_relevant_dofs[n_con, i_b] = con_n_relevant_dofs
-
-                    pos_diff = global_anchor1 - global_anchor2
-                    penetration = pos_diff.norm()
-
-                    imp, aref = gu.imp_aref(sol_params, -penetration, jac_qvel, pos_diff[i_3])
-
-                    diag = invweight * (1 - imp) / (imp + gs.EPS)
-
-                    self.diag[n_con, i_b] = diag
-                    self.aref[n_con, i_b] = aref
-
-                    self.efc_D[n_con, i_b] = 1 / ti.max(diag, gs.EPS)
+                if self._solver.equality_info[i_e].eq_type == gs.EQUALITY_TYPE.CONNECT:
+                    self._func_equality_connect(i_b, i_e)
+                elif self._solver.equality_info[i_e].eq_type == gs.EQUALITY_TYPE.WELD:
+                    pass
+                elif self._solver.equality_info[i_e].eq_type == gs.EQUALITY_TYPE.JOINT:
+                    self._func_equality_joint(i_b, i_e)
 
     @ti.kernel
     def add_joint_limit_constraints(self):
@@ -290,41 +362,45 @@ class ConstraintSolver:
             for i_l in range(self._solver.n_links):
                 I_l = [i_l, i_b] if ti.static(self._solver._options.batch_links_info) else i_l
                 l_info = self._solver.links_info[I_l]
-                if l_info.joint_type == gs.JOINT_TYPE.REVOLUTE or l_info.joint_type == gs.JOINT_TYPE.PRISMATIC:
-                    i_q = l_info.q_start
-                    i_d = l_info.dof_start
-                    I_d = [i_d, i_b] if ti.static(self._solver._options.batch_dofs_info) else i_d
-                    pos_min = self._solver.qpos[i_q, i_b] - self._solver.dofs_info[I_d].limit[0]
-                    pos_max = self._solver.dofs_info[I_d].limit[1] - self._solver.qpos[i_q, i_b]
-                    pos = min(min(pos_min, pos_max), 0)
 
-                    side = ((pos_min < pos_max) * 2 - 1) * (pos < 0)
+                for i_j in range(l_info.joint_start, l_info.joint_end):
+                    I_j = [i_j, i_b] if ti.static(self._solver._options.batch_joints_info) else i_j
+                    j_info = self._solver.joints_info[I_j]
 
-                    jac = side
-                    jac_qvel = jac * self._solver.dofs_state[i_d, i_b].vel
-                    imp, aref = gu.imp_aref(self._solver.dofs_info[I_d].sol_params, pos, jac_qvel, pos)
-                    diag = self._solver.dofs_info[I_d].invweight * (pos < 0) * (1 - imp) / (imp + gs.EPS)
-                    aref = aref * (pos < 0)
-                    if pos < 0:
-                        n_con = self.n_constraints[i_b]
-                        self.n_constraints[i_b] = n_con + 1
-                        self.diag[n_con, i_b] = diag
-                        self.aref[n_con, i_b] = aref
+                    if j_info.type == gs.JOINT_TYPE.REVOLUTE or j_info.type == gs.JOINT_TYPE.PRISMATIC:
+                        i_q = j_info.q_start
+                        i_d = j_info.dof_start
+                        I_d = [i_d, i_b] if ti.static(self._solver._options.batch_dofs_info) else i_d
+                        pos_delta_min = self._solver.qpos[i_q, i_b] - self._solver.dofs_info[I_d].limit[0]
+                        pos_delta_max = self._solver.dofs_info[I_d].limit[1] - self._solver.qpos[i_q, i_b]
+                        pos_delta = min(pos_delta_min, pos_delta_max)
 
-                        if ti.static(self.sparse_solve):
-                            for i_d2_ in range(self.jac_n_relevant_dofs[n_con, i_b]):
-                                i_d2 = self.jac_relevant_dofs[n_con, i_d2_, i_b]
-                                self.jac[n_con, i_d2, i_b] = gs.ti_float(0.0)
-                        else:
-                            for i_d2 in range(self._solver.n_dofs):
-                                self.jac[n_con, i_d2, i_b] = gs.ti_float(0.0)
-                        self.jac[n_con, i_d, i_b] = jac
+                        if pos_delta < 0:
+                            jac = (pos_delta_min < pos_delta_max) * 2 - 1
+                            jac_qvel = jac * self._solver.dofs_state[i_d, i_b].vel
+                            imp, aref = gu.imp_aref(j_info.sol_params, pos_delta, jac_qvel, pos_delta)
+                            diag = self._solver.dofs_info[I_d].invweight * (1 - imp) / (imp + gs.EPS)
+                            aref = aref
 
-                        if ti.static(self.sparse_solve):
-                            self.jac_n_relevant_dofs[n_con, i_b] = 1
-                            self.jac_relevant_dofs[n_con, 0, i_b] = i_d
+                            n_con = self.n_constraints[i_b]
+                            self.n_constraints[i_b] = n_con + 1
+                            self.diag[n_con, i_b] = diag
+                            self.aref[n_con, i_b] = aref
 
-                        self.efc_D[n_con, i_b] = 1 / ti.max(gs.EPS, diag)
+                            if ti.static(self.sparse_solve):
+                                for i_d2_ in range(self.jac_n_relevant_dofs[n_con, i_b]):
+                                    i_d2 = self.jac_relevant_dofs[n_con, i_d2_, i_b]
+                                    self.jac[n_con, i_d2, i_b] = gs.ti_float(0.0)
+                            else:
+                                for i_d2 in range(self._solver.n_dofs):
+                                    self.jac[n_con, i_d2, i_b] = gs.ti_float(0.0)
+                            self.jac[n_con, i_d, i_b] = jac
+
+                            if ti.static(self.sparse_solve):
+                                self.jac_n_relevant_dofs[n_con, i_b] = 1
+                                self.jac_relevant_dofs[n_con, 0, i_b] = i_d
+
+                            self.efc_D[n_con, i_b] = 1 / ti.max(gs.EPS, diag)
 
     @ti.func
     def _func_nt_hessian_incremental(self, i_b):
@@ -510,16 +586,18 @@ class ConstraintSolver:
                     self.jac_n_relevant_dofs[i_c, i_b] = 0
 
     def handle_constraints(self):
-        self.add_equality_constraints()
+        if not self._solver._disable_constraint:
+            if self._solver.n_equalities > 0:
+                self.add_equality_constraints()
 
-        if self._solver._enable_collision:
-            self.add_collision_constraints()
+            if self._solver._enable_collision:
+                self.add_collision_constraints()
 
-        if self._solver._enable_joint_limit:
-            self.add_joint_limit_constraints()
+            if self._solver._enable_joint_limit:
+                self.add_joint_limit_constraints()
 
-        if self._solver._enable_collision or self._solver._enable_joint_limit:
-            self.resolve()
+            if self._solver._enable_collision or self._solver._enable_joint_limit or self._solver.n_equalities > 0:
+                self.resolve()
 
     def resolve(self):
         from genesis.utils.tools import create_timer

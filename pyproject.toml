@@ -9,32 +9,37 @@ name = "genesis-world"
 version = "0.2.1"
 description = "A universal and generative physics engine"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10,<3.13"
 dependencies = [
     "psutil",
     "scikit-image",
     "taichi >= 1.7.2",
     "pydantic == 2.7.1",
-    "numpy == 1.26.4",
+    "numpy >= 1.26.4",
     "six",
     "PyOpenGL>=3.1.4",
     "freetype-py",
-    "pyglet>=2.1",
+    "pyglet>=1.5",
     "libigl",
     "pygltflib == 1.16.0",
-    "mujoco == 3.2.5",
+    # * Mujoco 3.3 made Native CCD an opt-out option instead of opt-in,
+    #   which requires setting the disableflags 'mjDSBL_NATIVECCD'.
+    "mujoco >= 3.3.0, < 3.4.0",
     "pycollada",
     "opencv-python",
     "lxml",
     "tetgen >= 0.6.4",
-    "PyGEL3D", # might need to use PyGEL3D == 0.1.0 for MacOS (M1)
+    "PyGEL3D",
     "moviepy >= 2.0.0",
     "numba",
     "pymeshlab",
     "coacd",
     "OpenEXR",
     "black",
-    "scipy == 1.15.1",
+    "trimesh",
+    "pytest",
+    "pytest-xdist",
+    "scipy >= 1.14",
 ]
 
 [tool.setuptools.packages.find]
@@ -51,6 +56,29 @@ genesis = [
 
 [tool.black]
 line-length = 120
+force-exclude = '''
+/(
+    genesis/ext
+)/
+'''
+
+[tool.pytest.ini_options]
+addopts = [
+    "--import-mode=importlib",
+    "--pdbcls=IPython.terminal.debugger:TerminalPdb",
+    "--exitfirst",
+    "--numprocesses=auto",
+    "--dist=loadgroup",
+    "-m not benchmarks",
+]
+filterwarnings = [
+    "ignore:.*PytestUnknownMarkWarning",
+    "ignore::DeprecationWarning",
+]
+markers = [
+    "benchmarks: marks benchmarks (executed independently and sequentially).",
+]
+log_cli_level = "WARNING"
 
 [project.scripts]
 gs = "genesis._main:main"
