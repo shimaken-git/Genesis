@@ -50,6 +50,9 @@ def main():
     env_cfg, obs_cfg, reward_cfg, command_cfg, train_cfg = pickle.load(open(f"logs/{args.exp_name}/cfgs.pkl", "rb"))
     reward_cfg["reward_scales"] = {}
 
+    env_cfg["termination_if_roll_greater_than"] = 60
+    env_cfg["termination_if_pitch_greater_than"] = 60
+
     env = Go2Env(
         num_envs=1,
         env_cfg=env_cfg,
@@ -66,9 +69,6 @@ def main():
     policy = runner.get_inference_policy(device="cpu")
 
     obs, _ = env.reset()
-    # for i in range(12):
-    #     joint.position.append(0)
-    #     joint.velocity.append(0)
     angle_msg = Float32MultiArray()
     projected_gravity = torch.zeros((1, 3), device="cpu", dtype=gs.tc_float)
     with torch.no_grad():
@@ -78,14 +78,10 @@ def main():
             projected_gravity = transform_by_quat(env.global_gravity, inv_base_quat)
             # obs[0, 0:3] = torch.tensor([imu.angular_velocity.x, imu.angular_velocity.y, imu.angular_velocity.z]) * env.obs_scales["ang_vel"]
             # obs[0, 3:6] = projected_gravity
-            obs[0, 6:9] = torch.tensor([cmd_vel.linear.x * 2.0, 0.0, cmd_vel.angular.z * 1.5]) * env.commands_scale
+            obs[0, 6:9] = torch.tensor([cmd_vel.linear.x * 2.0, 0.0, cmd_vel.angular.z * 4.0]) * env.commands_scale
             if len(joint.position) == 12:
                 obs[0, 9:21] = (torch.tensor(joint.position) - env.default_dof_pos) * env.obs_scales["dof_pos"]
                 obs[0, 21:33] = torch.tensor(joint.velocity) * env.obs_scales["dof_vel"]
-            # obs[0, 33:45] = actions
-            # print(obs)
-            # commands
-            # print(obs[0, 6:9])  #commands
             ## make actions
             actions = policy(obs)
             obs, _, rews, dones, infos = env.step(actions)

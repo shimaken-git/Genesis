@@ -31,7 +31,7 @@ def get_train_cfg(exp_name, max_iterations):
             "activation": "elu",
             "actor_hidden_dims": [512, 256, 128],
             "critic_hidden_dims": [512, 256, 128],
-            "init_noise_std": 5.0,
+            "init_noise_std": 2.0,
         },
         "runner": {
             "algorithm_class_name": "PPO",
