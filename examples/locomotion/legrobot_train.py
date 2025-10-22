@@ -3,10 +3,12 @@ import os
 import pickle
 import shutil
 
-from go2_env import Go2Env
-from rsl_rl.runners import OnPolicyRunner   # ver 1.0.1
+from legrobot_env import LegRobotEnv
+from rsl_rl.runners import OnPolicyRunner
 
 import genesis as gs
+from genesis.utils.geom import xyz_to_quat
+import numpy as np
 
 
 def get_train_cfg(exp_name, max_iterations):
@@ -31,7 +33,7 @@ def get_train_cfg(exp_name, max_iterations):
             "activation": "elu",
             "actor_hidden_dims": [512, 256, 128],
             "critic_hidden_dims": [512, 256, 128],
-            "init_noise_std": 2.0,
+            "init_noise_std": 1.0,
         },
         "runner": {
             "algorithm_class_name": "PPO",
@@ -58,45 +60,42 @@ def get_train_cfg(exp_name, max_iterations):
 
 def get_cfgs():
     env_cfg = {
-        "num_actions": 12,
+        "num_actions": 3,
         # joint/link names
         "default_joint_angles": {  # [rad]
-            "FL_hip_joint": 0.0,
-            "FR_hip_joint": 0.0,
-            "RL_hip_joint": 0.0,
-            "RR_hip_joint": 0.0,
-            "FL_thigh_joint": 0.8,
-            "FR_thigh_joint": 0.8,
-            "RL_thigh_joint": 1.0,
-            "RR_thigh_joint": 1.0,
-            "FL_calf_joint": -1.5,
-            "FR_calf_joint": -1.5,
-            "RL_calf_joint": -1.5,
-            "RR_calf_joint": -1.5,
+            "knee_joint": 0.75,
+            "ankle_y_joint": -0.0937,
+            "ankle_x_joint": 0.0,
+        },
+        "max_joint_angles": {  # [rad]
+            "knee_joint": 2.5,
+            "ankle_y_joint": 1.0,
+            "ankle_x_joint": 1.0,
+        },
+        "min_joint_angles": {  # [rad]
+            "knee_joint": 0.0,
+            "ankle_y_joint": -1.0,
+            "ankle_x_joint": -1.0,
         },
         "dof_names": [
-            "FR_hip_joint",
-            "FR_thigh_joint",
-            "FR_calf_joint",
-            "FL_hip_joint",
-            "FL_thigh_joint",
-            "FL_calf_joint",
-            "RR_hip_joint",
-            "RR_thigh_joint",
-            "RR_calf_joint",
-            "RL_hip_joint",
-            "RL_thigh_joint",
-            "RL_calf_joint",
+            "knee_joint",
+            "ankle_y_joint",
+            "ankle_x_joint",
         ],
         # PD
-        "kp": 20.0,
-        "kd": 0.5,
+        "kp": [30.0, 20.0, 20.0],
+        "kd": [0.5, 0.795, 0.795],
+        # "damping": [0.1, 0.1, 0.1],
+        # "armature": [0.00567, 0.001, 0.001],
+        "damping": [1.0, 1.0, 1.0],
+        "armature": [0.1, 0.1, 0.1],
         # termination
         "termination_if_roll_greater_than": 10,  # degree
-        "termination_if_pitch_greater_than": 10,
+        "termination_if_pitch_greater_than": 60,
         # base pose
-        "base_init_pos": [0.0, 0.0, 0.42],
-        "base_init_quat": [1.0, 0.0, 0.0, 0.0],
+        "base_init_pos": [0.0, 0.0, 0.6],
+        # "base_init_quat": [1.0, 0.0, 0.0, 0.0],
+        "base_init_quat": np.array(xyz_to_quat(np.array([0.0, -32.6, 0.0])), dtype='float32'),
         "episode_length_s": 20.0,
         "resampling_time_s": 4.0,
         "action_scale": 0.25,
@@ -104,12 +103,12 @@ def get_cfgs():
         "clip_actions": 100.0,
     }
     obs_cfg = {
-        "num_obs": 45,
+        "num_obs": 18,    # dof_num
         "obs_scales": {
-            "lin_vel": 2.0,
-            "ang_vel": 0.25,
-            "dof_pos": 1.0,
-            "dof_vel": 0.05,
+            "lin_vel": 2.0,    # 3
+            "ang_vel": 0.25,   # 3
+            "dof_pos": 1.0,    # dof_num
+            "dof_vel": 0.05,   # dof_num
         },
     }
     reward_cfg = {
@@ -121,23 +120,26 @@ def get_cfgs():
             "tracking_ang_vel": 0.2,
             "lin_vel_z": -1.0,
             "base_height": -50.0,
-            "action_rate": -0.005,
+            "action_rate": -0.07, #-0.005,
             "similar_to_default": -0.1,
+            "dof_pos_range": -1.0,
+            "feet_air_time": 0.001,
+            "lateral_moving": 1.0,
+            "lateral_periodic": 5.0,
         },
     }
     command_cfg = {
         "num_commands": 3,
         "lin_vel_x_range": [-0.5, 0.5],
-        "lin_vel_y_range": [-0.5, 0.5],
-        "ang_vel_range": [-1.7, 1.7],
+        "lin_vel_y_range": [0.0, 0.0],
+        "ang_vel_range": [0.0, 0.0],
     }
-
     return env_cfg, obs_cfg, reward_cfg, command_cfg
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-e", "--exp_name", type=str, default="go2-walking")
+    parser.add_argument("-e", "--exp_name", type=str, default="legrobot-walking")
     parser.add_argument("-B", "--num_envs", type=int, default=4096)
     parser.add_argument("--max_iterations", type=int, default=500)
     args = parser.parse_args()
@@ -152,7 +154,7 @@ def main():
         shutil.rmtree(log_dir)
     os.makedirs(log_dir, exist_ok=True)
 
-    env = Go2Env(
+    env = LegRobotEnv(
         num_envs=args.num_envs, env_cfg=env_cfg, obs_cfg=obs_cfg, reward_cfg=reward_cfg, command_cfg=command_cfg, show_viewer=True
     )
 

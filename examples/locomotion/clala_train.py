@@ -3,8 +3,8 @@ import os
 import pickle
 import shutil
 
-from go2_env import Go2Env
-from rsl_rl.runners import OnPolicyRunner   # ver 1.0.1
+from clala_env import ClalaEnv
+from rsl_rl.runners import OnPolicyRunner
 
 import genesis as gs
 
@@ -31,7 +31,7 @@ def get_train_cfg(exp_name, max_iterations):
             "activation": "elu",
             "actor_hidden_dims": [512, 256, 128],
             "critic_hidden_dims": [512, 256, 128],
-            "init_noise_std": 2.0,
+            "init_noise_std": 1.0,
         },
         "runner": {
             "algorithm_class_name": "PPO",
@@ -58,44 +58,71 @@ def get_train_cfg(exp_name, max_iterations):
 
 def get_cfgs():
     env_cfg = {
-        "num_actions": 12,
+        "num_actions": 10,
         # joint/link names
         "default_joint_angles": {  # [rad]
-            "FL_hip_joint": 0.0,
-            "FR_hip_joint": 0.0,
-            "RL_hip_joint": 0.0,
-            "RR_hip_joint": 0.0,
-            "FL_thigh_joint": 0.8,
-            "FR_thigh_joint": 0.8,
-            "RL_thigh_joint": 1.0,
-            "RR_thigh_joint": 1.0,
-            "FL_calf_joint": -1.5,
-            "FR_calf_joint": -1.5,
-            "RL_calf_joint": -1.5,
-            "RR_calf_joint": -1.5,
+            "L_calf_joint": 1.15,
+            "L_hip2_joint": 0.0,
+            "L_hip_joint": 0.0,
+            "L_thigh_joint": -0.57,
+            "L_toe_joint": -0.60,
+            "R_calf_joint": 1.15,
+            "R_hip2_joint": 0.0,
+            "R_hip_joint": 0.0,
+            "R_thigh_joint": -0.57,
+            "R_toe_joint": -0.60,
+        },
+        "max_joint_angles": {  # [rad]
+            "L_calf_joint": 2.5,
+            "L_hip2_joint": 0.7,
+            "L_hip_joint": 0.4,
+            "L_thigh_joint": 1.5,
+            "L_toe_joint": 1.5,
+            "R_calf_joint": 2.5,
+            "R_hip2_joint": 0.7,
+            "R_hip_joint": 0.4,
+            "R_thigh_joint": 1.5,
+            "R_toe_joint": 1.5,
+        },
+        "min_joint_angles": {  # [rad]
+            "L_calf_joint": -0.05,
+            "L_hip2_joint": -0.7,
+            "L_hip_joint": -0.4,
+            "L_thigh_joint": -1.5,
+            "L_toe_joint": -1.5,
+            "R_calf_joint": -0.05,
+            "R_hip2_joint": -0.7,
+            "R_hip_joint": -0.4,
+            "R_thigh_joint": -1.5,
+            "R_toe_joint": -1.5,
         },
         "dof_names": [
-            "FR_hip_joint",
-            "FR_thigh_joint",
-            "FR_calf_joint",
-            "FL_hip_joint",
-            "FL_thigh_joint",
-            "FL_calf_joint",
-            "RR_hip_joint",
-            "RR_thigh_joint",
-            "RR_calf_joint",
-            "RL_hip_joint",
-            "RL_thigh_joint",
-            "RL_calf_joint",
+            "L_calf_joint",
+            "L_hip2_joint",
+            "L_hip_joint",
+            "L_thigh_joint",
+            "L_toe_joint",
+            "R_calf_joint",
+            "R_hip2_joint",
+            "R_hip_joint",
+            "R_thigh_joint",
+            "R_toe_joint",
         ],
         # PD
-        "kp": 20.0,
-        "kd": 0.5,
+        "kp": [15.3, 9.1, 30.0, 29.0, 30.0, 15.3, 9.1, 30.0, 29.0, 30.0],
+        # "kp": [40.0, 9.1, 10.0, 29.0, 10.0, 40.0, 9.1, 10.0, 29.0, 10.0],
+        "kd": [0.934, 0.758, 0.5, 0.795, 0.5, 0.934, 0.758, 0.5, 0.795, 0.5],
+        # "kp": [20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
+        # "kd": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+        "damping": [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
+        "armature": [0.0173, 0.021, 0.001, 0.00567, 0.001, 0.0173, 0.021, 0.001, 0.00567, 0.001],
+        # "damping": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        # "armature": [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
         # termination
         "termination_if_roll_greater_than": 10,  # degree
         "termination_if_pitch_greater_than": 10,
         # base pose
-        "base_init_pos": [0.0, 0.0, 0.42],
+        "base_init_pos": [0.0, 0.0, 0.35],
         "base_init_quat": [1.0, 0.0, 0.0, 0.0],
         "episode_length_s": 20.0,
         "resampling_time_s": 4.0,
@@ -104,12 +131,12 @@ def get_cfgs():
         "clip_actions": 100.0,
     }
     obs_cfg = {
-        "num_obs": 45,
+        "num_obs": 39,    # dof_num * 3 + 9 かな？    下の26に加えて　dof_effort(dof_num) robot_angle(3) 合計39　って感じかな。
         "obs_scales": {
-            "lin_vel": 2.0,
-            "ang_vel": 0.25,
-            "dof_pos": 1.0,
-            "dof_vel": 0.05,
+            "lin_vel": 2.0,    # 3
+            "ang_vel": 0.25,   # 3
+            "dof_pos": 1.0,    # dof_num
+            "dof_vel": 0.05,   # dof_num
         },
     }
     reward_cfg = {
@@ -121,8 +148,15 @@ def get_cfgs():
             "tracking_ang_vel": 0.2,
             "lin_vel_z": -1.0,
             "base_height": -50.0,
-            "action_rate": -0.005,
+            "action_rate": -0.07, #-0.005,
             "similar_to_default": -0.1,
+            "dof_pos_range": -1.0,
+            # "dof_motion": -1.0,
+            # "thigh_up": 0.0,
+            "feet_air_time": 0.001,
+            "lateral_moving": 1.0,
+            "lateral_periodic": 5.0,
+            "hip_angle_st": -1.0,
         },
     }
     command_cfg = {
@@ -137,7 +171,7 @@ def get_cfgs():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-e", "--exp_name", type=str, default="go2-walking")
+    parser.add_argument("-e", "--exp_name", type=str, default="clala-walking")
     parser.add_argument("-B", "--num_envs", type=int, default=4096)
     parser.add_argument("--max_iterations", type=int, default=500)
     args = parser.parse_args()
@@ -152,7 +186,7 @@ def main():
         shutil.rmtree(log_dir)
     os.makedirs(log_dir, exist_ok=True)
 
-    env = Go2Env(
+    env = ClalaEnv(
         num_envs=args.num_envs, env_cfg=env_cfg, obs_cfg=obs_cfg, reward_cfg=reward_cfg, command_cfg=command_cfg, show_viewer=True
     )
 

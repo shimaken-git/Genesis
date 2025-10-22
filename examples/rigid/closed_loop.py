@@ -12,7 +12,7 @@ scene = gs.Scene(
 
 franka = scene.add_entity(
     gs.morphs.MJCF(
-        file="xml/four_bar_linkage.xml",
+        file="./genesis/assets/xml/four_bar_linkage.xml",
     ),
 )
 

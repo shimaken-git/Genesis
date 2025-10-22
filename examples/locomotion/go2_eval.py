@@ -10,7 +10,7 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import JointState
 import torch
 from go2_env import Go2Env
-from rsl_rl.runners import OnPolicyRunner
+from rsl_rl.runners import OnPolicyRunner  # ver.1.0.2
 
 import genesis as gs
 from genesis.utils.geom import quat_to_xyz, transform_by_quat, inv_quat, transform_quat_by_quat
@@ -100,6 +100,14 @@ def main():
             gimu.angular_velocity.y = env.base_ang_vel[0, 1]
             gimu.angular_velocity.z = env.base_ang_vel[0, 2]
             pub2.publish(gimu)
+
+# ros no use
+
+    # with torch.no_grad():
+    #     while True:
+    #         actions = policy(obs)
+    #         obs, _, rews, dones, infos = env.step(actions)
+
 
 
 if __name__ == "__main__":
