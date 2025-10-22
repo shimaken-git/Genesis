@@ -74,10 +74,14 @@ def main():
     with torch.no_grad():
         while not rospy.is_shutdown():
             ## make obs
-            inv_base_quat = inv_quat(torch.tensor([[imu.orientation.w, imu.orientation.x, imu.orientation.y, imu.orientation.z]]))
+            base_quat = torch.tensor([[imu.orientation.x, imu.orientation.y, imu.orientation.z, imu.orientation.w]])
+            inv_base_quat = inv_quat(base_quat)
+            # print("inv_base_quat ", inv_base_quat)
+            # print("rpy ", quat_to_xyz(base_quat))
             projected_gravity = transform_by_quat(env.global_gravity, inv_base_quat)
-            # obs[0, 0:3] = torch.tensor([imu.angular_velocity.x, imu.angular_velocity.y, imu.angular_velocity.z]) * env.obs_scales["ang_vel"]
-            # obs[0, 3:6] = projected_gravity
+            # print("projected_gravity ", projected_gravity)
+            obs[0, 0:3] = torch.tensor([imu.angular_velocity.x, imu.angular_velocity.y, imu.angular_velocity.z]) * env.obs_scales["ang_vel"]
+            obs[0, 3:6] = projected_gravity
             obs[0, 6:9] = torch.tensor([cmd_vel.linear.x * 2.0, 0.0, cmd_vel.angular.z * 4.0]) * env.commands_scale
             if len(joint.position) == 12:
                 obs[0, 9:21] = (torch.tensor(joint.position) - env.default_dof_pos) * env.obs_scales["dof_pos"]
@@ -90,6 +94,8 @@ def main():
             for i in range(12):
                 angle_msg.data.append(env.target_dof_pos[0, i].item())
             pub.publish(angle_msg)
+            # print("env.base_quat ", env.base_quat)
+            # print("rpy ", quat_to_xyz(env.base_quat))
             gimu = Imu()
             gimu.header.stamp = rospy.Time.now()
             gimu.orientation.x = env.base_quat[0, 1]
