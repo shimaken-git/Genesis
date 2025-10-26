@@ -22,7 +22,7 @@ def main():
     args = parser.parse_args()
 
 
-    gs.init(backend=gs.cuda:0)
+    gs.init(backend=gs.cuda)
 
     log_dir = f"logs/{args.exp_name}"
     env_cfg, obs_cfg, reward_cfg, command_cfg, train_cfg = pickle.load(open(f"logs/{args.exp_name}/cfgs.pkl", "rb"))
@@ -50,7 +50,7 @@ def main():
     with torch.no_grad():
         while True:
             actions = policy(obs)
-            obs, rews, dones, infos = env.step(actions)
+            obs, rews, barrier_rews, dones, infos = env.step(actions)
 
 
 

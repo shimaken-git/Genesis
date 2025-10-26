@@ -110,6 +110,12 @@ def get_cfgs():
             "RL_thigh_joint",
             "RL_calf_joint",
         ],
+        "calf_names": [
+            "FL_calf",
+            "FR_calf",
+            "RL_calf",
+            "RR_calf",
+        ],
         # PD
         "kp": 20.0,
         "kd": 0.5,
@@ -117,7 +123,7 @@ def get_cfgs():
         "termination_if_roll_greater_than": 10,  # degree
         "termination_if_pitch_greater_than": 10,
         # base pose
-        "base_init_pos": [0.0, 0.0, 0.42],
+        "base_init_pos": [3.0, 3.0, 0.42],
         "base_init_quat": [1.0, 0.0, 0.0, 0.0],
         "episode_length_s": 20.0,
         "resampling_time_s": 4.0,
@@ -127,7 +133,15 @@ def get_cfgs():
     }
     obs_cfg = {
         "num_obs": 45,
+        # "num_obs": 66, # 3+3+12+12+12+12+4*3 = 66
+        # standard observation
+        # body orientation, body angular velocity, joint positions and velocities, history of joint position errors and joint velocities,
+        # relative foot positions in the body frame
         "num_pri_obs": 3,
+        # "num_pri_obs": 3, # 3+4+
+        # privileged observation
+        # body's linear velocity, foot contact state, and terrain information around the feet
+        # critic にはstandard observationとprivileged observationが入力される。
         "obs_scales": {
             "lin_vel": 2.0,
             "ang_vel": 0.25,
@@ -136,16 +150,29 @@ def get_cfgs():
         },
     }
     reward_cfg = {
-        "tracking_sigma": 0.25,
+        "tracking_sigma": 0.2,
         "base_height_target": 0.3,
         "feet_height_target": 0.075,
         "reward_scales": {
             "tracking_lin_vel": 1.0,
             "tracking_ang_vel": 0.2,
+            # "foot_slip": 0.1,
+            # "action_smoothness1": 0.1,
+            # "action_smoothness2": 0.1,
+            # "orientation_deviation": 0.1,
+            # "joint_position_regularization": 0.1,
+            # "joint_velocity_regularization": 0.1,
+            # "joint_acceleration_regularization": 0.1,
+            # "torque_regularization": 0.1,
+            # "base_motion_regulation": 0.1,
+            # "body_contact": 0.1,
+            # "body_com_offset": 0.1,
+
             "lin_vel_z": -1.0,
             "base_height": -50.0,
             "action_rate": -0.005,
             "similar_to_default": -0.1,
+
         },
         "barrier_reward_parameters": {   # [scale, lower, upper, delta]
             "tracking_lin_vel": [1.0, -0.1, 0.1, 0.1],

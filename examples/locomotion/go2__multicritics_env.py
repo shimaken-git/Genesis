@@ -9,6 +9,8 @@ from genesis.utils.geom import quat_to_xyz, transform_by_quat, inv_quat, transfo
 from tensordict import TensorDict
 from rsl_rl.utils.barrier import relaxed_barrier_for_interval
 
+import numpy as np
+
 
 
 def gs_rand_float(lower, upper, shape, device):
@@ -58,7 +60,22 @@ class Go2Env:
         )
 
         # add plain
-        self.scene.add_entity(gs.morphs.URDF(file="urdf/plane/plane.urdf", fixed=True))
+        # self.scene.add_entity(gs.morphs.URDF(file="urdf/plane/plane.urdf", fixed=True))
+
+        # add terrain
+        hf = np.zeros((40, 40), dtype=np.int16)
+        hf[10:30, 10:30] = 200 * np.hanning(20)[:, None] * np.hanning(20)[None, :]
+
+        horizontal_scale = 0.25  # metres between grid points
+        vertical_scale   = 0.005  # metres per height-field unit
+
+        self.scene.add_entity(
+            morph=gs.morphs.Terrain(
+                height_field=hf,
+                horizontal_scale=horizontal_scale,
+                vertical_scale=vertical_scale,
+            ),
+        )
 
         # add robot
         self.base_init_pos = torch.tensor(self.env_cfg["base_init_pos"], device=self.device)
@@ -75,8 +92,19 @@ class Go2Env:
         # build
         self.scene.build(n_envs=num_envs)
 
+        # for g in self.robot.geoms:
+        #     print(g.idx, g.link.name, g.get_pos()[0, :])
+
         # names to indices
         self.motor_dofs = [self.robot.get_joint(name).dof_idx_local for name in self.env_cfg["dof_names"]]
+        self.foot_idxs = []
+        # 足先のgeomを探す
+        for name in self.env_cfg["calf_names"]:
+            geoms = self.robot.get_link(name).geoms
+            for g in geoms:
+                if g.get_pos()[0, 2] < 0.01:
+                    self.foot_idxs.append(g.idx)
+        print("self.foot_idxs", self.foot_idxs)
 
         # PD control parameters
         self.robot.set_dofs_kp([self.env_cfg["kp"]] * self.num_actions, self.motor_dofs)
@@ -153,6 +181,21 @@ class Go2Env:
         self.projected_gravity = transform_by_quat(self.global_gravity, inv_base_quat)
         self.dof_pos[:] = self.robot.get_dofs_position(self.motor_dofs)
         self.dof_vel[:] = self.robot.get_dofs_velocity(self.motor_dofs)
+
+        #接地検出
+        contacts_info = self.robot.get_contacts()
+        # print("contacts_info", contacts_info)
+        mask = (contacts_info['geom_a'] == self.foot_idxs[0].item())
+        # 非ゼロの位置を取得
+        row_indices, col_indices = mask.nonzero(as_tuple=True)
+        # print("row_indices", row_indices)
+        # print("col_indices", col_indices)
+        # output用tensorを用意
+        result = torch.full((contacts_info['geom_a'].size(0),), -1, dtype=torch.long, device=self.device)
+        # 該当要素に書き込み
+        result[row_indices] = col_indices[range(len(row_indices))]
+        # print("result", result)
+
 
         # resample commands
         envs_idx = (
@@ -284,6 +327,48 @@ class Go2Env:
         # Tracking of angular velocity commands (yaw)
         ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
         return torch.exp(-ang_vel_error / self.reward_cfg["tracking_sigma"])
+
+    # def _reward_foot_slip(self):
+    #     # Penalize foot slip
+    #     #接地している足の胴体を起点とした先端速度を見る。
+    #     foot_speed_all = 0
+    #     for i in range(4):
+    #         if touch(i) > 0: #接地
+    #             foot_spped_all += torch.sum(torch.square(self.foot_lin_vel[:, 2]), dim=1)
+    #     return foot_speed_all
+
+    # def _reward_action_smoothness1(self):
+    #     # Penalize action smoothness 1st-oder
+    #     return torch.sum(self.joint_tpos - self.joint_tbpos)
+
+    # def _reward_action_smoothness2(self):
+    #     # Penalize action smoothness 2nd-oder
+    #     return torch.sum(self.joint_tpos - 2 * self.joint_tbpos + self.joint_tbbpos)
+
+    # def _reward_orientation_deviation(self):
+    #     # Penalize orientation deviation
+    #     return torch.sum(torch.square(torch.acos(self.posture[2, 2])))
+
+    # def _reward_joint_position_regularization(self):
+    #     return torch.sum(torch.square(self.dof_pos - self.default.dof_pos), dim=1)
+
+    # def _reward_joint_velocity_regularization(self):
+    #     return torch.sum(torch.square(self.dof_omega))
+
+    # def _reward_joint_acceleration_regularization(self):
+    #     return torch.sum(torch.square(self.dof_omega - self.dof_bomega))
+
+    # def _reward_torque_regularization(self):
+    #     return torch.sum(torch.square(self.dof_torque))
+
+    # def _reward_base_motion_regulation(self):
+    #     return torch.sum(0.4 * torch.square(self.base_lin_vel[:, 2]) + 0.2 * torch.abs(self.omega[:, 0]) + 0.2 * torch.abs(self.omega[;, 1]))
+
+    # def _reward_body_contact(self):
+    #     return torch.sum(self.body_contact)
+
+    # def _reward_body_com_offset(self):
+    #     return torch.sum(torch.square(self.com_offset[:, :2]) * self.stand)
 
     def _reward_lin_vel_z(self):
         # Penalize z axis base linear velocity
