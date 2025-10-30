@@ -66,14 +66,15 @@ class Go2Env:
         hf = np.zeros((40, 40), dtype=np.int16)
         hf[10:30, 10:30] = 200 * np.hanning(20)[:, None] * np.hanning(20)[None, :]
 
-        horizontal_scale = 0.25  # metres between grid points
-        vertical_scale   = 0.005  # metres per height-field unit
+        self.horizontal_scale = 0.25  # metres between grid points
+        self.vertical_scale   = 0.005  # metres per height-field unit
 
-        self.scene.add_entity(
+        self.terrain = self.scene.add_entity(
             morph=gs.morphs.Terrain(
+                pos = (-3.0, -3.0, 0.0),
                 height_field=hf,
-                horizontal_scale=horizontal_scale,
-                vertical_scale=vertical_scale,
+                horizontal_scale=self.horizontal_scale,
+                vertical_scale=self.vertical_scale,
             ),
         )
 
@@ -185,17 +186,68 @@ class Go2Env:
         #接地検出
         contacts_info = self.robot.get_contacts()
         # print("contacts_info", contacts_info)
-        mask = (contacts_info['geom_a'] == self.foot_idxs[0].item())
-        # 非ゼロの位置を取得
-        row_indices, col_indices = mask.nonzero(as_tuple=True)
-        # print("row_indices", row_indices)
-        # print("col_indices", col_indices)
-        # output用tensorを用意
-        result = torch.full((contacts_info['geom_a'].size(0),), -1, dtype=torch.long, device=self.device)
-        # 該当要素に書き込み
-        result[row_indices] = col_indices[range(len(row_indices))]
-        # print("result", result)
+        contacts = []
+        for foot in self.foot_idxs:
+            mask = (contacts_info['geom_a'] == foot)
+            # 非ゼロの位置を取得
+            row_indices, col_indices = mask.nonzero(as_tuple=True)
+            # print("row_indices", row_indices)
+            # print("col_indices", col_indices)
+            # output用tensorを用意
+            result = torch.full((contacts_info['geom_a'].size(0),), -1, dtype=torch.long, device=self.device)
+            # 該当要素に書き込み
+            result[row_indices] = col_indices[range(len(row_indices))]
+            contacts.append(result)
+        self.foot_contact = torch.stack(contacts, dim = 1)
+        # print("foot_contact", self.foot_contact.shape)
+        # print("self.foot_contact", self.foot_contact[0])
 
+        # 地表の座標を取得してみるテスト
+        # print(self.foot_contact[0][0])
+        # if self.foot_contact[0][0].item() > -1:
+        #     contact_pos = contacts_info["position"][0][self.foot_contact[0][0].item()].to('cpu').numpy()
+        #     print(contact_pos)
+
+        #     hf = self.terrain.geoms[0].metadata["height_field"]
+        #     h_scale = self.horizontal_scale
+        #     v_scale = self.vertical_scale
+        #     pos_offset = [0, 0, 0]
+
+        #     # 任意のワールド座標
+        #     xw, zw = contact_pos[0], contact_pos[1]
+
+        #     # ローカル座標（x,z平面）
+        #     ix = (xw - pos_offset[0]) / h_scale
+        #     iz = (zw - pos_offset[1]) / h_scale  # 注意：pos_offset[1] = y-オフなので、z軸は pos_offset[2] ?
+
+        #     # 配列インデックス
+        #     i0 = int(np.floor(ix))
+        #     j0 = int(np.floor(iz))
+        #     # 補間用の t,u
+        #     tx = ix - i0
+        #     tz = iz - j0
+
+        #     # 配列アクセス（境界チェック必須）
+        #     h00 = hf[i0  , j0  ]
+        #     h10 = hf[i0+1, j0  ]
+        #     h01 = hf[i0  , j0+1]
+        #     h11 = hf[i0+1, j0+1]
+
+        #     # 双線形補間
+        #     h_interp = (h00*(1-tx)*(1-tz) + h10*tx*(1-tz) + h01*(1-tx)*tz + h11*tx*tz)
+        #     y = h_interp * v_scale + pos_offset[2]
+        #     print("terrain_pos", xw, zw, y)
+        _p = []
+        for g_idx in self.foot_idxs:
+            for g in self.robot.geoms:
+                if g.idx == g_idx:
+                    _p.append(g.get_pos())
+        self.foot_pos = torch.stack(_p, dim = 1)
+        print("foot_pos", self.foot_pos[0]) # world coordinate
+
+        print("robot pos:", self.robot.get_pos()[0])
+        print("robot quat: ", self.robot.get_quat()[0])
+        print("robot euler:", self.base_euler[0])
 
         # resample commands
         envs_idx = (
@@ -258,6 +310,49 @@ class Go2Env:
         self.last_dof_vel[:] = self.dof_vel[:]
 
         return self.observations, self.rew_buf, self.barrier_rew_buf, self.reset_buf, self.extras
+
+    # 地表高さを取得する関数（テンソル版）（未デバッグ）
+    def terrain_height_from_tensor(wx, wz, height_field, horizontal_scale, vertical_scale, terrain_pos):
+        """
+        wx, wz: ワールド座標 (tensor)
+        height_field: torch.tensor shape (H, W)
+        horizontal_scale, vertical_scale: float
+        terrain_pos: (x0, y0, z0) ワールド原点オフセット
+        """
+        H, W = height_field.shape
+        x0, y0, z0 = terrain_pos
+
+        # ローカル座標系に変換
+        lx = (wx - x0) / horizontal_scale
+        lz = (wz - z0) / horizontal_scale
+
+        # floor / frac
+        ix = torch.floor(lx).long()
+        iz = torch.floor(lz).long()
+        tx = lx - ix.float()
+        tz = lz - iz.float()
+
+        # 境界をクランプ
+        ix = torch.clamp(ix, 0, H - 2)
+        iz = torch.clamp(iz, 0, W - 2)
+
+        # 4近傍を取得（双線形補間）
+        h00 = height_field[ix, iz]
+        h10 = height_field[ix + 1, iz]
+        h01 = height_field[ix, iz + 1]
+        h11 = height_field[ix + 1, iz + 1]
+
+        # 双線形補間（ベクトル演算）
+        h_interp = (
+            h00 * (1 - tx) * (1 - tz)
+            + h10 * tx * (1 - tz)
+            + h01 * (1 - tx) * tz
+            + h11 * tx * tz
+        )
+
+        # スケール＋高さオフセット
+        wy = h_interp * vertical_scale + y0
+        return wy
 
     def get_observations(self):
         # return self.obs_buf

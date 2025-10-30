@@ -123,7 +123,7 @@ def get_cfgs():
         "termination_if_roll_greater_than": 10,  # degree
         "termination_if_pitch_greater_than": 10,
         # base pose
-        "base_init_pos": [3.0, 3.0, 0.42],
+        "base_init_pos": [0.0, 0.0, 0.42],
         "base_init_quat": [1.0, 0.0, 0.0, 0.0],
         "episode_length_s": 20.0,
         "resampling_time_s": 4.0,
@@ -136,7 +136,7 @@ def get_cfgs():
         # "num_obs": 66, # 3+3+12+12+12+12+4*3 = 66
         # standard observation
         # body orientation, body angular velocity, joint positions and velocities, history of joint position errors and joint velocities,
-        # relative foot positions in the body frame
+        # relative foot positions in the body frame, previous actions, commanded velocity, cyclic functions, and a stand-mode indicator
         "num_pri_obs": 3,
         # "num_pri_obs": 3, # 3+4+
         # privileged observation

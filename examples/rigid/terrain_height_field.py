@@ -54,6 +54,9 @@ def main():
     scene.build(n_envs=1)
 
     height_field = terrain.geoms[0].metadata["height_field"]
+    print(height_field)
+    print(type(height_field))
+    print(height_field.shape)
     rows = horizontal_scale * torch.arange(0, height_field.shape[0], 1, device="cuda").unsqueeze(1).repeat(
         1, height_field.shape[1]
     ).unsqueeze(-1)
@@ -61,6 +64,8 @@ def main():
         height_field.shape[0], 1
     ).unsqueeze(-1)
     heights = vertical_scale * torch.tensor(height_field, device="cuda").unsqueeze(-1)
+    print(heights.shape)
+    print(heights.size())
 
     poss = torch.cat([rows, cols, heights], dim=-1).reshape(-1, 3)
     scene.draw_debug_spheres(poss=poss, radius=0.05, color=(0, 0, 1, 0.7))
