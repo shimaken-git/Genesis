@@ -29,6 +29,7 @@ class Go2Env:
 
         self.simulate_action_latency = True  # there is a 1 step latency on real robot
         self.dt = 0.02  # control frequency on real robot is 50hz
+        self.elapsed_time = 0.0
         self.max_episode_length = math.ceil(env_cfg["episode_length_s"] / self.dt)
 
         self.env_cfg = env_cfg
@@ -39,6 +40,8 @@ class Go2Env:
         self.obs_scales = obs_cfg["obs_scales"]
         self.reward_scales = reward_cfg["reward_scales"]
         self.barrier_rew_parameters = reward_cfg["barrier_reward_parameters"]
+        self.T = self.env_cfg["cycle"]
+        self.d_lower_gait = self.env_cfg["d_lower_gait"]
 
         # create scene
         self.scene = gs.Scene(
@@ -93,13 +96,10 @@ class Go2Env:
         # build
         self.scene.build(n_envs=num_envs)
 
-        # for g in self.robot.geoms:
-        #     print(g.idx, g.link.name, g.get_pos()[0, :])
-
         # names to indices
         self.motor_dofs = [self.robot.get_joint(name).dof_idx_local for name in self.env_cfg["dof_names"]]
         self.foot_idxs = []
-        # 足先のgeomを探す
+        # search foot geom
         for name in self.env_cfg["calf_names"]:
             geoms = self.robot.get_link(name).geoms
             for g in geoms:
@@ -199,6 +199,10 @@ class Go2Env:
             result[row_indices] = col_indices[range(len(row_indices))]
             contacts.append(result)
         self.foot_contact = torch.stack(contacts, dim = 1)
+        self.foot_state = torch.ones_like(self.foot_contact)
+        self.foot_state = -1 if self.foot_contact < 0
+        # 1:stance 0:swing
+
         # print("foot_contact", self.foot_contact.shape)
         # print("self.foot_contact", self.foot_contact[0])
 
@@ -248,6 +252,17 @@ class Go2Env:
         print("robot pos:", self.robot.get_pos()[0])
         print("robot quat: ", self.robot.get_quat()[0])
         print("robot euler:", self.base_euler[0])
+
+        # cyclic function
+        (cycle_a, cycle_b) = (np.sin(2*np.pi*self.elapsed_time/self.T), np.cos(2*np.pi*self.elapsed_time/self.T))
+        _gait = 1 if cycle_a > self.d_lower_gait else -1 cycle_a < -self.d_lower_gait else 0
+        # _gait : 1 -> enforcing stance
+        #       : 0 -> either
+        #       : -1 -> enforcing swing
+        # _gait    :      1       -1
+        # phase 0  :    stance   swing
+        # phase 1  :    swing    stance
+        desire_gait = (_gait, -_gait, -_gait, _gait)
 
         # resample commands
         envs_idx = (
@@ -308,6 +323,8 @@ class Go2Env:
 
         self.last_actions[:] = self.actions[:]
         self.last_dof_vel[:] = self.dof_vel[:]
+
+        self.elapsed_time += self.dt
 
         return self.observations, self.rew_buf, self.barrier_rew_buf, self.reset_buf, self.extras
 

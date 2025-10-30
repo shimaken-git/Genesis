@@ -122,6 +122,9 @@ def get_cfgs():
         # termination
         "termination_if_roll_greater_than": 10,  # degree
         "termination_if_pitch_greater_than": 10,
+        # cyclic function
+        "cycle": 0.8, # sec
+        "d_lower_gait": 0.6
         # base pose
         "base_init_pos": [0.0, 0.0, 0.42],
         "base_init_quat": [1.0, 0.0, 0.0, 0.0],
@@ -133,10 +136,19 @@ def get_cfgs():
     }
     obs_cfg = {
         "num_obs": 45,
-        # "num_obs": 66, # 3+3+12+12+12+12+4*3 = 66
-        # standard observation
-        # body orientation, body angular velocity, joint positions and velocities, history of joint position errors and joint velocities,
-        # relative foot positions in the body frame, previous actions, commanded velocity, cyclic functions, and a stand-mode indicator
+        # "num_obs": 93, # 3+12+12+12+12+12+12+12+3+2+1 = 93
+        ### standard observation
+        # body orientation 3 euler角を入れる
+        # body angular velocity 12
+        # joint positions 12
+        # joint velocities 12
+        # history of joint position errors 12 接地状態を間接的に取得するために入れているらしい
+        # history of joint velocities 12 接地状態を間接的に取得するために入れているらしい
+        # relative foot positions in the body frame 12 COMからの距離
+        # previous actions 12
+        # commanded velocity 3
+        # cyclic functions 2
+        # stand-mode indicator 1
         "num_pri_obs": 3,
         # "num_pri_obs": 3, # 3+4+
         # privileged observation
