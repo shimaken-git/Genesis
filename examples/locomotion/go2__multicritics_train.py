@@ -124,7 +124,7 @@ def get_cfgs():
         "termination_if_pitch_greater_than": 10,
         # cyclic function
         "cycle": 0.8, # sec
-        "d_lower_gait": 0.6
+        "d_lower_gait": 0.6,
         # base pose
         "base_init_pos": [0.0, 0.0, 0.42],
         "base_init_quat": [1.0, 0.0, 0.0, 0.0],
@@ -152,7 +152,9 @@ def get_cfgs():
         "num_pri_obs": 3,
         # "num_pri_obs": 3, # 3+4+
         # privileged observation
-        # body's linear velocity, foot contact state, and terrain information around the feet
+        # body's linear velocity
+        # foot contact state
+        # terrain information around the feet
         # critic にはstandard observationとprivileged observationが入力される。
         "obs_scales": {
             "lin_vel": 2.0,
@@ -189,6 +191,13 @@ def get_cfgs():
         "barrier_reward_parameters": {   # [scale, lower, upper, delta]
             "tracking_lin_vel": [1.0, -0.1, 0.1, 0.1],
             "tracking_ang_vel": [0.2, -0.1, 0.1, 0.1],
+            # gait
+            # foot clearance
+            # joint position
+            # body height
+            # target velocity
+            # base motion
+            # joint velocity
         },
     }
     command_cfg = {

@@ -123,6 +123,10 @@ class Go2Env:
             self.barrier_rew_functions[name] = getattr(self, "_barrier_reward_" + name)
             self.barrier_epi_sums[name] = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
 
+        # gait function
+        phase = torch.tensor([[1, -1, -1, 1]], device=self.device, dtype=gs.tc_float)
+        self.phase_tensor = phase.repeat(self.num_envs, 1)
+
         # initialize buffers
         self.base_lin_vel = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
         self.base_ang_vel = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
@@ -199,8 +203,10 @@ class Go2Env:
             result[row_indices] = col_indices[range(len(row_indices))]
             contacts.append(result)
         self.foot_contact = torch.stack(contacts, dim = 1)
-        self.foot_state = torch.ones_like(self.foot_contact)
-        self.foot_state = -1 if self.foot_contact < 0
+
+        # 要らないか。。
+        # self.foot_state = torch.ones_like(self.foot_contact)
+        # self.foot_state = -1 if self.foot_contact < 0 else 1
         # 1:stance 0:swing
 
         # print("foot_contact", self.foot_contact.shape)
@@ -255,14 +261,17 @@ class Go2Env:
 
         # cyclic function
         (cycle_a, cycle_b) = (np.sin(2*np.pi*self.elapsed_time/self.T), np.cos(2*np.pi*self.elapsed_time/self.T))
-        _gait = 1 if cycle_a > self.d_lower_gait else -1 cycle_a < -self.d_lower_gait else 0
-        # _gait : 1 -> enforcing stance
-        #       : 0 -> either
-        #       : -1 -> enforcing swing
-        # _gait    :      1       -1
-        # phase 0  :    stance   swing
-        # phase 1  :    swing    stance
-        desire_gait = (_gait, -_gait, -_gait, _gait)
+        gait_bool = self.phase_tensor * self.foot_contact/torch.abs(self.foot_contact) * cycle_a < self.d_lower_gait
+        gait_penalty = torch.where(gait_bool, 0.0, cycle_a - self.d_lower_gait)
+        print(cycle_a, gait_bool[0], gait_penalty[0])
+        # _gait = 1 if cycle_a > self.d_lower_gait else -1 if cycle_a < -self.d_lower_gait else 0
+        # # _gait : 1 -> enforcing stance
+        # #       : 0 -> either
+        # #       : -1 -> enforcing swing
+        # # _gait    :      1       -1
+        # # phase 0  :    stance   swing
+        # # phase 1  :    swing    stance
+        # desire_gait = (_gait, -_gait, -_gait, _gait)
 
         # resample commands
         envs_idx = (
