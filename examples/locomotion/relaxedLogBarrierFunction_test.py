@@ -48,4 +48,4 @@ if __name__ == "__main__":
     test_plot_one_sided(delta=0.05, k=2)
 
     # 2. 区間制約バリアをテスト
-    test_plot_interval(lower=-1.0, upper=1.0, delta_frac=0.1, k=2)
+    test_plot_interval(lower=-0.3, upper=0.3, delta_frac=0.08, k=2)

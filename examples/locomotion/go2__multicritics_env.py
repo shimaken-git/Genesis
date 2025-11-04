@@ -5,7 +5,7 @@ rsl_rl version3.1.1用のgo2_train
 import torch
 import math
 import genesis as gs
-from genesis.utils.geom import quat_to_xyz, transform_by_quat, inv_quat, transform_quat_by_quat
+from genesis.utils.geom import quat_to_xyz, transform_by_quat, inv_quat, transform_quat_by_quat, quat_to_R
 from tensordict import TensorDict
 from rsl_rl.utils.barrier import relaxed_barrier_for_interval
 
@@ -41,7 +41,7 @@ class Go2Env:
         self.reward_scales = reward_cfg["reward_scales"]
         self.barrier_rew_parameters = reward_cfg["barrier_reward_parameters"]
         self.T = self.env_cfg["cycle"]
-        self.d_lower_gait = self.env_cfg["d_lower_gait"]
+        # self.d_lower_gait = self.env_cfg["d_lower_gait"]
 
         # create scene
         self.scene = gs.Scene(
@@ -68,18 +68,23 @@ class Go2Env:
         # add terrain
         hf = np.zeros((40, 40), dtype=np.int16)
         hf[10:30, 10:30] = 200 * np.hanning(20)[:, None] * np.hanning(20)[None, :]
+        self.hf_tensor = torch.from_numpy(hf).clone()
+        self.hf_tensor = self.hf_tensor.to(self.device)
 
         self.horizontal_scale = 0.25  # metres between grid points
         self.vertical_scale   = 0.005  # metres per height-field unit
-
+        pos = (-3.0, -3.0, 0.0)
+        self.terrain_pos = torch.tensor([pos], device=self.device)
         self.terrain = self.scene.add_entity(
             morph=gs.morphs.Terrain(
-                pos = (-3.0, -3.0, 0.0),
+                pos = pos,
                 height_field=hf,
                 horizontal_scale=self.horizontal_scale,
                 vertical_scale=self.vertical_scale,
             ),
         )
+
+        self.hf = self.terrain.geoms[0].metadata["height_field"]
 
         # add robot
         self.base_init_pos = torch.tensor(self.env_cfg["base_init_pos"], device=self.device)
@@ -151,14 +156,19 @@ class Go2Env:
         self.last_actions = torch.zeros_like(self.actions)
         self.dof_pos = torch.zeros_like(self.actions)
         self.dof_vel = torch.zeros_like(self.actions)
+        self.dof_force = torch.zeros_like(self.actions)
         self.last_dof_vel = torch.zeros_like(self.actions)
         self.base_pos = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
+        self.last_base_pos = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
+        self.last2_base_pos = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
         self.base_quat = torch.zeros((self.num_envs, 4), device=self.device, dtype=gs.tc_float)
+        self.last_base_quat = torch.zeros((self.num_envs, 4), device=self.device, dtype=gs.tc_float)
         self.default_dof_pos = torch.tensor(
             [self.env_cfg["default_joint_angles"][name] for name in self.env_cfg["dof_names"]],
             device=self.device,
             dtype=gs.tc_float,
         )
+        self.last_foot_pos = torch.zeros((self.num_envs, 4, 3), device=self.device, dtype=gs.tc_float)
         self.extras = dict()  # extra information for logging
 
     def _resample_commands(self, envs_idx):
@@ -186,6 +196,7 @@ class Go2Env:
         self.projected_gravity = transform_by_quat(self.global_gravity, inv_base_quat)
         self.dof_pos[:] = self.robot.get_dofs_position(self.motor_dofs)
         self.dof_vel[:] = self.robot.get_dofs_velocity(self.motor_dofs)
+        self.dof_force[:] = self.robot.get_dofs_force(self.motor_dofs)
 
         #接地検出
         contacts_info = self.robot.get_contacts()
@@ -203,75 +214,33 @@ class Go2Env:
             result[row_indices] = col_indices[range(len(row_indices))]
             contacts.append(result)
         self.foot_contact = torch.stack(contacts, dim = 1)
+        self.foot_contact_float = torch.zeros_like(self.foot_contact, device=self.device, dtype=gs.tc_float)
+        self.foot_contact_float = torch.where(self.foot_contact > -1, 1.0, -1.0)
+        self.foot_contact_float = torch.flatten(self.foot_contact_float, start_dim=1)
 
-        # 要らないか。。
-        # self.foot_state = torch.ones_like(self.foot_contact)
-        # self.foot_state = -1 if self.foot_contact < 0 else 1
-        # 1:stance 0:swing
-
-        # print("foot_contact", self.foot_contact.shape)
-        # print("self.foot_contact", self.foot_contact[0])
-
-        # 地表の座標を取得してみるテスト
-        # print(self.foot_contact[0][0])
-        # if self.foot_contact[0][0].item() > -1:
-        #     contact_pos = contacts_info["position"][0][self.foot_contact[0][0].item()].to('cpu').numpy()
-        #     print(contact_pos)
-
-        #     hf = self.terrain.geoms[0].metadata["height_field"]
-        #     h_scale = self.horizontal_scale
-        #     v_scale = self.vertical_scale
-        #     pos_offset = [0, 0, 0]
-
-        #     # 任意のワールド座標
-        #     xw, zw = contact_pos[0], contact_pos[1]
-
-        #     # ローカル座標（x,z平面）
-        #     ix = (xw - pos_offset[0]) / h_scale
-        #     iz = (zw - pos_offset[1]) / h_scale  # 注意：pos_offset[1] = y-オフなので、z軸は pos_offset[2] ?
-
-        #     # 配列インデックス
-        #     i0 = int(np.floor(ix))
-        #     j0 = int(np.floor(iz))
-        #     # 補間用の t,u
-        #     tx = ix - i0
-        #     tz = iz - j0
-
-        #     # 配列アクセス（境界チェック必須）
-        #     h00 = hf[i0  , j0  ]
-        #     h10 = hf[i0+1, j0  ]
-        #     h01 = hf[i0  , j0+1]
-        #     h11 = hf[i0+1, j0+1]
-
-        #     # 双線形補間
-        #     h_interp = (h00*(1-tx)*(1-tz) + h10*tx*(1-tz) + h01*(1-tx)*tz + h11*tx*tz)
-        #     y = h_interp * v_scale + pos_offset[2]
-        #     print("terrain_pos", xw, zw, y)
         _p = []
         for g_idx in self.foot_idxs:
             for g in self.robot.geoms:
                 if g.idx == g_idx:
                     _p.append(g.get_pos())
         self.foot_pos = torch.stack(_p, dim = 1)
-        print("foot_pos", self.foot_pos[0]) # world coordinate
+        # print("foot_pos", self.foot_pos[0]) # world coordinate
 
-        print("robot pos:", self.robot.get_pos()[0])
-        print("robot quat: ", self.robot.get_quat()[0])
-        print("robot euler:", self.base_euler[0])
+        # print("robot pos:", self.robot.get_pos()[0])
+        # print("robot quat: ", self.robot.get_quat()[0])
+        # print("robot euler:", self.base_euler[0])
 
+        # height of foot position
+        footpos_height = self.terrain_height_from_tensor()
+        # print("height of foot pos ", footpos_height[0])
         # cyclic function
-        (cycle_a, cycle_b) = (np.sin(2*np.pi*self.elapsed_time/self.T), np.cos(2*np.pi*self.elapsed_time/self.T))
-        gait_bool = self.phase_tensor * self.foot_contact/torch.abs(self.foot_contact) * cycle_a < self.d_lower_gait
-        gait_penalty = torch.where(gait_bool, 0.0, cycle_a - self.d_lower_gait)
-        print(cycle_a, gait_bool[0], gait_penalty[0])
-        # _gait = 1 if cycle_a > self.d_lower_gait else -1 if cycle_a < -self.d_lower_gait else 0
-        # # _gait : 1 -> enforcing stance
-        # #       : 0 -> either
-        # #       : -1 -> enforcing swing
-        # # _gait    :      1       -1
-        # # phase 0  :    stance   swing
-        # # phase 1  :    swing    stance
-        # desire_gait = (_gait, -_gait, -_gait, _gait)
+        self.cycle_a, self.cycle_b = (np.sin(2*np.pi*self.elapsed_time/self.T), np.cos(2*np.pi*self.elapsed_time/self.T))
+        cyclic_func = torch.tensor([self.cycle_a, self.cycle_b], device=self.device, dtype=gs.tc_float)
+        self.cyclic_func_tensor = cyclic_func.repeat(self.num_envs, 1)
+        # print("cyclic_func", self.cyclic_func_tensor.shape, self.cyclic_func_tensor)
+
+        # compute foot_vel
+        self.foot_vel = (self.foot_pos - self.last_foot_pos) / self.dt
 
         # resample commands
         envs_idx = (
@@ -301,30 +270,45 @@ class Go2Env:
 
         self.barrier_rew_buf[:] = 0.0
         for name, barrier_rew_func in self.barrier_rew_functions.items():
+            scale = self.barrier_rew_parameters[name][0]
             lower = self.barrier_rew_parameters[name][1]
             upper = self.barrier_rew_parameters[name][2]
             delta = self.barrier_rew_parameters[name][3]
-            rew = barrier_rew_func() * self.barrier_rew_parameters[name][0]
-            rew = relaxed_barrier_for_interval(rew, lower, upper, delta)
+            sum = self.barrier_rew_parameters[name][4]
+            rew = barrier_rew_func()
+            rew = relaxed_barrier_for_interval(rew, lower=lower, upper=upper, delta_frac=delta) * scale
+            if sum > 0:
+                rew = torch.sum(rew, dim = 1)
             self.barrier_rew_buf += rew
             self.barrier_epi_sums[name] += rew
 
 
         # compute observations
+        base_pos_exp = torch.unsqueeze(self.base_pos, 1)
+        relative_foot_pos = (self.foot_pos - base_pos_exp)
+        relative_foot_pos = torch.flatten(relative_foot_pos, start_dim=1)
         self.obs_buf = torch.cat(
             [
-                self.base_ang_vel * self.obs_scales["ang_vel"],  # 3
-                self.projected_gravity,  # 3
-                self.commands * self.commands_scale,  # 3
-                (self.dof_pos - self.default_dof_pos) * self.obs_scales["dof_pos"],  # 12
-                self.dof_vel * self.obs_scales["dof_vel"],  # 12
-                self.actions,  # 12
+                # self.projected_gravity,  # 3
+                self.base_euler * self.obs_scales["ori_vel"], # body orientation 3 euler角を入れる
+                self.base_ang_vel * self.obs_scales["ang_vel"],  # body angular velocity 3
+                (self.dof_pos - self.default_dof_pos) * self.obs_scales["dof_pos"],  # joint positions 12
+                self.dof_vel * self.obs_scales["dof_vel"],  # joint velocities 12
+                (self.target_dof_pos - self.dof_pos) * self.obs_scales["pos_err"], # history of joint position errors 12
+                # history of joint velocities 12 dof_velと同じになるので控える
+                relative_foot_pos * self.obs_scales["foot_pos"], # relative foot positions in the body frame 12 COMからの距離
+                self.actions,  # previous actions 12
+                self.commands * self.commands_scale,  # commanded velocity 3
+                self.cyclic_func_tensor # cyclic functions 2
+                # stand-mode indicator 1
             ],
             axis=-1,
         )
         self.privileged_obs_buf = torch.cat(
             [
-                self.base_ang_vel * self.obs_scales["ang_vel"],  # 3
+                self.base_lin_vel * self.obs_scales["base_lin_vel"],  # body's linear velocity 3
+                self.foot_contact_float, # foot contact state 4
+                footpos_height # terrain information around the feet 4
             ],
             axis=-1,
         )
@@ -334,51 +318,50 @@ class Go2Env:
         self.last_dof_vel[:] = self.dof_vel[:]
 
         self.elapsed_time += self.dt
+        self.last_foot_pos[:] = self.foot_pos[:]
+        self.last_base_quat[:] = self.base_quat[:]
+        self.last2_base_pos[:] = self.last_base_pos[:]
+        self.last_base_pos[:] = self.base_pos[:]
 
         return self.observations, self.rew_buf, self.barrier_rew_buf, self.reset_buf, self.extras
 
     # 地表高さを取得する関数（テンソル版）（未デバッグ）
-    def terrain_height_from_tensor(wx, wz, height_field, horizontal_scale, vertical_scale, terrain_pos):
+    def terrain_height_from_tensor(self):
         """
-        wx, wz: ワールド座標 (tensor)
+        foot_pos: ワールド座標 (tensor)
         height_field: torch.tensor shape (H, W)
         horizontal_scale, vertical_scale: float
         terrain_pos: (x0, y0, z0) ワールド原点オフセット
         """
-        H, W = height_field.shape
-        x0, y0, z0 = terrain_pos
+        H, W = self.hf_tensor.shape
 
         # ローカル座標系に変換
-        lx = (wx - x0) / horizontal_scale
-        lz = (wz - z0) / horizontal_scale
+        lpos = (self.foot_pos - self.terrain_pos) / self.horizontal_scale
 
         # floor / frac
-        ix = torch.floor(lx).long()
-        iz = torch.floor(lz).long()
-        tx = lx - ix.float()
-        tz = lz - iz.float()
+        ipos = torch.floor(lpos).long()
+        tpos = lpos - ipos.float()
 
         # 境界をクランプ
-        ix = torch.clamp(ix, 0, H - 2)
-        iz = torch.clamp(iz, 0, W - 2)
+        ipos = torch.clamp(ipos, torch.tensor([0, 0, 0], device=self.device), torch.tensor([H - 2, W - 2, 100], device=self.device))
 
         # 4近傍を取得（双線形補間）
-        h00 = height_field[ix, iz]
-        h10 = height_field[ix + 1, iz]
-        h01 = height_field[ix, iz + 1]
-        h11 = height_field[ix + 1, iz + 1]
+        h00 = self.hf_tensor[ipos[:, :, 0], ipos[:, :, 1]]
+        h10 = self.hf_tensor[ipos[:, :, 0] + 1, ipos[:, :, 1]]
+        h01 = self.hf_tensor[ipos[:, :, 0], ipos[:, :, 1] + 1]
+        h11 = self.hf_tensor[ipos[:, :, 0] + 1, ipos[:, :, 1] + 1]
 
         # 双線形補間（ベクトル演算）
         h_interp = (
-            h00 * (1 - tx) * (1 - tz)
-            + h10 * tx * (1 - tz)
-            + h01 * (1 - tx) * tz
-            + h11 * tx * tz
+            h00 * (1 - tpos[:, :, 0]) * (1 - tpos[:, :, 2])
+            + h10 * tpos[:, :, 0] * (1 - tpos[:, :, 2])
+            + h01 * (1 - tpos[:, :, 0]) * tpos[:, :, 2]
+            + h11 * tpos[:, :, 2] * tpos[:, :, 2]
         )
 
         # スケール＋高さオフセット
-        wy = h_interp * vertical_scale + y0
-        return wy
+        footpos_height = h_interp * self.vertical_scale + self.terrain_pos[:,2]
+        return footpos_height
 
     def get_observations(self):
         # return self.obs_buf
@@ -449,63 +432,57 @@ class Go2Env:
         ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
         return torch.exp(-ang_vel_error / self.reward_cfg["tracking_sigma"])
 
-    # def _reward_foot_slip(self):
-    #     # Penalize foot slip
-    #     #接地している足の胴体を起点とした先端速度を見る。
-    #     foot_speed_all = 0
-    #     for i in range(4):
-    #         if touch(i) > 0: #接地
-    #             foot_spped_all += torch.sum(torch.square(self.foot_lin_vel[:, 2]), dim=1)
-    #     return foot_speed_all
+    def _reward_foot_slip(self):
+        # Penalize foot slip
+        # 接地している足のワールド速度を見る。（スリップしていなければゼロのはず）
+        result = torch.sum(self.foot_vel[:,:,0][self.foot_contact > -1]**2 + self.foot_vel[:,:,0][self.foot_contact > -1]**2)
+        return result
 
-    # def _reward_action_smoothness1(self):
-    #     # Penalize action smoothness 1st-oder
-    #     return torch.sum(self.joint_tpos - self.joint_tbpos)
+    def _reward_action_smoothness1(self):
+        # Penalize action smoothness 1st-oder
+        return torch.square(torch.norm(self.base_pos - self.last_base_pos, dim=1))
 
-    # def _reward_action_smoothness2(self):
-    #     # Penalize action smoothness 2nd-oder
-    #     return torch.sum(self.joint_tpos - 2 * self.joint_tbpos + self.joint_tbbpos)
+    def _reward_action_smoothness2(self):
+        # Penalize action smoothness 2nd-oder
+        return torch.square(torch.norm(self.base_pos - 2 * self.last_base_pos + self.last2_base_pos, dim=1))
 
-    # def _reward_orientation_deviation(self):
-    #     # Penalize orientation deviation
-    #     return torch.sum(torch.square(torch.acos(self.posture[2, 2])))
+    def _reward_orientation_deviation(self):
+        # Penalize orientation deviation
+        base_R = quat_to_R(self.base_quat)
+        return torch.sum(torch.square(torch.acos(base_R[:,2,2])))
 
-    # def _reward_joint_position_regularization(self):
-    #     return torch.sum(torch.square(self.dof_pos - self.default.dof_pos), dim=1)
+    def _reward_joint_position_regularization(self):
+        return torch.sum(torch.square(self.dof_pos - self.default_dof_pos), dim=1)
 
-    # def _reward_joint_velocity_regularization(self):
-    #     return torch.sum(torch.square(self.dof_omega))
+    def _reward_joint_velocity_regularization(self):
+        return torch.sum(torch.square(self.dof_vel))
 
-    # def _reward_joint_acceleration_regularization(self):
-    #     return torch.sum(torch.square(self.dof_omega - self.dof_bomega))
+    def _reward_joint_acceleration_regularization(self):
+        return torch.sum(torch.square(self.dof_vel - self.last_dof_vel))
 
-    # def _reward_torque_regularization(self):
-    #     return torch.sum(torch.square(self.dof_torque))
+    def _reward_torque_regularization(self):
+        return torch.sum(torch.square(self.dof_force))
 
-    # def _reward_base_motion_regulation(self):
-    #     return torch.sum(0.4 * torch.square(self.base_lin_vel[:, 2]) + 0.2 * torch.abs(self.omega[:, 0]) + 0.2 * torch.abs(self.omega[;, 1]))
+    def _reward_base_motion_regulation(self):
+        # quaternionの時間微分を求める
+        d_base_quat = (self.base_quat - self.last_base_quat) / self.dt  # tensor(num_envs, 4)
+        d_base_quat = d_base_quat.unsqueeze(2)  # tensor(num_envs, 4, 1)
+        q0 = self.base_quat[:,0]
+        q1 = self.base_quat[:,1]
+        q2 = self.base_quat[:,2]
+        q3 = self.base_quat[:,3]
+        row1 = torch.stack([-q1, q0, q3, -q2], dim=1)
+        row2 = torch.stack([-q2, -q3, q0, q1], dim=1)
+        row3 = torch.stack([-q3, q2, -q1, q0], dim=1)
+        mat_e = torch.stack([row1, row2, row3], dim=1)
+        omega = 2 * torch.bmm(mat_e, d_base_quat)
+        return torch.sum(0.4 * torch.square(self.base_lin_vel[:, 2]) + 0.2 * torch.abs(omega[:, 0]) + 0.2 * torch.abs(omega[:, 1]))
 
     # def _reward_body_contact(self):
     #     return torch.sum(self.body_contact)
 
     # def _reward_body_com_offset(self):
     #     return torch.sum(torch.square(self.com_offset[:, :2]) * self.stand)
-
-    def _reward_lin_vel_z(self):
-        # Penalize z axis base linear velocity
-        return torch.square(self.base_lin_vel[:, 2])
-
-    def _reward_action_rate(self):
-        # Penalize changes in actions
-        return torch.sum(torch.square(self.last_actions - self.actions), dim=1)
-
-    def _reward_similar_to_default(self):
-        # Penalize joint poses far away from default pose
-        return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1)
-
-    def _reward_base_height(self):
-        # Penalize base height away from target
-        return torch.square(self.base_pos[:, 2] - self.reward_cfg["base_height_target"])
 
     def _barrier_reward_tracking_lin_vel(self):
         # Tracking of linear velocity commands (xy axes)
@@ -516,3 +493,8 @@ class Go2Env:
         # Tracking of angular velocity commands (yaw)
         ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
         return torch.exp(-ang_vel_error / self.reward_cfg["tracking_sigma"])
+
+    def _barrier_reward_gait_timing(self):
+        gait_bool = self.phase_tensor * self.foot_contact/torch.abs(self.foot_contact) * self.cycle_a < self.barrier_rew_parameters["gait_timing"][1]
+        gait_penalty = torch.where(gait_bool, self.cycle_a, 0.0)
+        return gait_penalty

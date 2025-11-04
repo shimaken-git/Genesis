@@ -124,7 +124,7 @@ def get_cfgs():
         "termination_if_pitch_greater_than": 10,
         # cyclic function
         "cycle": 0.8, # sec
-        "d_lower_gait": 0.6,
+        # "d_lower_gait": 0.6,
         # base pose
         "base_init_pos": [0.0, 0.0, 0.42],
         "base_init_quat": [1.0, 0.0, 0.0, 0.0],
@@ -135,32 +135,36 @@ def get_cfgs():
         "clip_actions": 100.0,
     }
     obs_cfg = {
-        "num_obs": 45,
-        # "num_obs": 93, # 3+12+12+12+12+12+12+12+3+2+1 = 93
+        # "num_obs": 45,
+        "num_obs": 71, # 3+3+12+12+12+12+12+3+2 = 71
         ### standard observation
         # body orientation 3 euler角を入れる
-        # body angular velocity 12
+        # body angular velocity 3
         # joint positions 12
         # joint velocities 12
         # history of joint position errors 12 接地状態を間接的に取得するために入れているらしい
-        # history of joint velocities 12 接地状態を間接的に取得するために入れているらしい
+        ## history of joint velocities 12 dof_velと同じになるので控える
         # relative foot positions in the body frame 12 COMからの距離
         # previous actions 12
         # commanded velocity 3
         # cyclic functions 2
-        # stand-mode indicator 1
-        "num_pri_obs": 3,
-        # "num_pri_obs": 3, # 3+4+
+        ## stand-mode indicator 1
+        # "num_pri_obs": 3,
+        "num_pri_obs": 11, # 3+4+4
         # privileged observation
-        # body's linear velocity
-        # foot contact state
-        # terrain information around the feet
+        # body's linear velocity 3
+        # foot contact state 4
+        # terrain information around the feet 4
         # critic にはstandard observationとprivileged observationが入力される。
         "obs_scales": {
-            "lin_vel": 2.0,
+            "ori_vel": 0.25,
             "ang_vel": 0.25,
             "dof_pos": 1.0,
             "dof_vel": 0.05,
+            "pos_err": 0.1,
+            "foot_pos": 0.2,
+            "base_lin_vel": 0.5,
+            "lin_vel": 2.0,
         },
     }
     reward_cfg = {
@@ -170,28 +174,28 @@ def get_cfgs():
         "reward_scales": {
             "tracking_lin_vel": 1.0,
             "tracking_ang_vel": 0.2,
-            # "foot_slip": 0.1,
-            # "action_smoothness1": 0.1,
-            # "action_smoothness2": 0.1,
-            # "orientation_deviation": 0.1,
-            # "joint_position_regularization": 0.1,
-            # "joint_velocity_regularization": 0.1,
-            # "joint_acceleration_regularization": 0.1,
-            # "torque_regularization": 0.1,
-            # "base_motion_regulation": 0.1,
+            "foot_slip": -0.1,
+            "action_smoothness1": -0.1,
+            "action_smoothness2": -0.1,
+            "orientation_deviation": -0.1,
+            "joint_position_regularization": -0.1,
+            "joint_velocity_regularization": -0.1,
+            "joint_acceleration_regularization": -0.1,
+            "torque_regularization": -0.1,
+            "base_motion_regulation": -0.1,
             # "body_contact": 0.1,
             # "body_com_offset": 0.1,
 
-            "lin_vel_z": -1.0,
-            "base_height": -50.0,
-            "action_rate": -0.005,
-            "similar_to_default": -0.1,
+            # "lin_vel_z": -1.0,
+            # "base_height": -50.0,
+            # "action_rate": -0.005,
+            # "similar_to_default": -0.1,
 
         },
-        "barrier_reward_parameters": {   # [scale, lower, upper, delta]
-            "tracking_lin_vel": [1.0, -0.1, 0.1, 0.1],
-            "tracking_ang_vel": [0.2, -0.1, 0.1, 0.1],
-            # gait
+        "barrier_reward_parameters": {   # [scale, lower, upper, delta, sum] sum:resultがtensor(num_envs)じゃない(tensor(num_envs,4)とか)場合に1とする。
+            # "tracking_lin_vel": [1.0, -0.1, 0.1, 0.1],
+            # "tracking_ang_vel": [0.2, -0.1, 0.1, 0.1],
+            "gait_timing": [-50.0, -0.3, 0.3, 0.08, 1]  # gait
             # foot clearance
             # joint position
             # body height
